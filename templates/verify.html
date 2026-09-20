@@ -6,64 +6,83 @@
 <title>TunnelShare — download {{ share_id }}</title>
 <link rel="icon" href="data:,">
 <style>
-:root{color-scheme:light dark;--accent:#F6821F}
+:root{color-scheme:light dark;--accent:#F6821F;--card:#ffffff;--ink:#1a1a1a;--muted:#6b7280;--line:#e5e7eb;--shadow:0 12px 32px rgba(0,0,0,.10);--radius:14px}
+@media(prefers-color-scheme:dark){:root{--card:#1c1e21;--ink:#f3f4f6;--muted:#9ca3af;--line:#33373d;--shadow:0 12px 32px rgba(0,0,0,.45)}}
 *{box-sizing:border-box}
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:24px;line-height:1.5;max-width:560px;margin-inline:auto}
-/* shared layout note: send-pane lives on index.html; this page is the receive-pane */
-h1{font-size:1.4rem;margin:0 0 12px}
-.card{border:1px solid #ccc;border-radius:12px;padding:16px;margin-bottom:16px}
-.filecard{display:grid;gap:4px}
-.filecard .fname{font-weight:700;font-size:1.1rem;word-break:break-all}
-.meta{color:gray;font-size:.9rem}
-label{display:block;margin:12px 0 4px;font-weight:600;text-align:center;font-size:1.1rem}
-input.codebox{width:100%;padding:14px;border:2px solid #888;border-radius:10px;font-size:2rem;letter-spacing:.25em;text-align:center;font-family:ui-monospace,Menlo,Consolas,monospace}
-input.codebox:focus{border-color:var(--accent);outline:2px solid var(--accent)}
-button{width:100%;margin-top:16px;padding:12px;border:0;border-radius:8px;font-size:1.05rem;cursor:pointer;background:#1a73e8;color:#fff}
-button:disabled{opacity:.6}
-button.big{font-size:1.3rem;padding:16px;font-weight:800}
-button#pauseBtn{background:#555}
-button.copybtn{width:auto;margin-top:8px;padding:8px 16px;font-size:.9rem;background:#333}
-#msg{margin-top:12px;font-weight:600;min-height:1.5em}
-#msg.err{color:#a00}
-.progress{height:12px;background:#eee;border-radius:6px;overflow:hidden;margin-top:12px;display:none}
-.progress>div{height:100%;width:0%;background:var(--accent);transition:width .15s}
-#dlabel{font-size:.85rem;color:gray;margin-top:4px;display:none}
-.statgrid{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:.9rem;margin-top:8px}
-.statgrid dt{color:gray}.statgrid dd{margin:0;font-weight:600;word-break:break-all}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;margin:0;padding:32px 16px 48px;line-height:1.5;color:var(--ink);background:transparent}
+.wrap{max-width:520px;margin-inline:auto}
+.brand{font-weight:800;font-size:1rem;letter-spacing:.02em;text-align:center;margin:0 0 16px;color:var(--ink)}
+.brand b{color:var(--accent)}
+h1{font-size:1.35rem;margin:0 0 4px;text-align:center}
+.sub{color:var(--muted);font-size:.9rem;text-align:center;margin:0 0 20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:28px 24px}
+.filehead{display:flex;gap:14px;align-items:center;margin-bottom:6px}
+.fileicon{flex:0 0 52px;width:52px;height:52px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.8rem;letter-spacing:.04em;background:#fff4e8;color:#9a4a00;border:1px solid #f3c98f}
+@media(prefers-color-scheme:dark){.fileicon{background:#3a2410;color:#ffb35c;border-color:#6b4211}}
+.fname{font-weight:700;font-size:1.05rem;word-break:break-all;line-height:1.3}
+.fsub{color:var(--muted);font-size:.85rem;margin-top:2px}
+.statgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;font-size:.9rem;margin:14px 0 4px;padding:0}
+.statgrid dt{color:var(--muted)}
+.statgrid dd{margin:0;font-weight:600;word-break:break-all}
 .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:.75rem;font-weight:700;background:#eee;color:#333}
 .pill.ACTIVE{background:#F6821F;color:#fff}
 .pill.EXPIRED{background:#888;color:#fff}
 .pill.EXHAUSTED{background:#fbe3c9;color:#7a3c00}
 .pill.LOCKED{background:#f3c1c1;color:#7a0000}
+.divider{border:0;border-top:1px solid var(--line);margin:18px 0}
+label.codelabel{display:block;margin:0 0 8px;font-weight:700;text-align:center;font-size:1.05rem}
+input.codebox{width:100%;padding:14px;border:2px solid #9aa0a6;border-radius:10px;font-size:2rem;letter-spacing:.25em;text-align:center;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:transparent;color:inherit}
+input.codebox:focus{border-color:var(--accent);outline:2px solid var(--accent)}
+button{width:100%;margin-top:14px;padding:13px;border:0;border-radius:10px;font-size:1.05rem;cursor:pointer;background:#1a73e8;color:#fff}
+button:disabled{opacity:.55;cursor:default}
+button.big{font-size:1.3rem;padding:16px;font-weight:800;background:var(--accent);border-radius:12px}
+button#pauseBtn{background:#555}
+button.copybtn{width:auto;margin-top:10px;padding:8px 16px;font-size:.9rem;background:#333;border-radius:8px}
+#msg{margin-top:12px;font-weight:600;min-height:1.5em;text-align:center}
+#msg.err{color:#c81e1e}
+@media(prefers-color-scheme:dark){ #msg.err{color:#f08a8a}}
+.progress{height:12px;background:#e9ecef;border-radius:6px;overflow:hidden;margin-top:12px;display:none}
+@media(prefers-color-scheme:dark){.progress{background:#33373d}}
+.progress>div{height:100%;width:0%;background:var(--accent);transition:width .15s}
+#dlabel{font-size:.85rem;color:var(--muted);margin-top:6px;display:none;text-align:center}
+.meta{color:var(--muted);font-size:.85rem}
+.foot{margin-top:16px;text-align:center}
 </style>
 </head>
 <body>
-<h1>TunnelShare download</h1>
+<div class="wrap">
+<div class="brand">Tunnel<b>Share</b></div>
 {% if not found %}
-<div class="card"><p>Share <b>{{ share_id }}</b> not found. The link may be wrong.</p><p><a href="/">Open Send/Receive dashboard</a> to send a file instead. <!-- Open /s/<id> --></p></div>
+<div class="card"><h1>Share not found</h1><p class="sub">Share <b>{{ share_id }}</b> does not exist. The link may be mistyped or the share may have expired.</p><p class="meta foot">Ask the sender for a fresh share link and the 6-digit code.</p></div>
 {% else %}
-<div class="card filecard" id="filecard">
-  <div class="fname" id="fname">Loading file info…</div>
+<div class="card" id="receive-pane">
+  <h1>File waiting for you</h1>
+  <p class="sub">Enter the 6-digit code from the sender, then download.</p>
+  <div class="filehead">
+    <div class="fileicon" id="ficon" aria-hidden="true">FILE</div>
+    <div>
+      <div class="fname" id="fname">Loading file info…</div>
+      <div class="fsub meta" id="meta">Loading file info…</div>
+    </div>
+  </div>
   <dl class="statgrid">
     <dt>Size</dt><dd id="fsize">—</dd>
     <dt>Downloads left</dt><dd id="fleft">—</dd>
     <dt>Expiry</dt><dd id="fexp">—</dd>
     <dt>Status</dt><dd id="fstatus"><span class="pill">…</span></dd>
   </dl>
-  <p class="meta" id="meta">Loading file info…</p>
   <div>
     <button type="button" class="copybtn" id="copyLinkBtn">Copy link</button>
   </div>
-</div>
-<div class="card" id="receive-pane">
-  <label for="code">6-digit code</label>
+  <hr class="divider">
+  <label class="codelabel" for="code">6-digit code</label>
   <input class="codebox" id="code" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••••" autofocus>
   <button id="btn" class="big">Download</button>
   <button id="pauseBtn" style="display:none">Pause</button>
   <div class="progress" id="dprogress"><div id="dbar"></div></div>
   <div id="dlabel">0%</div>
   <p id="msg" aria-live="polite"></p>
-  <p class="meta"><a href="/">Open Send/Receive dashboard</a> · send-pane is on the home page.</p>
+  <p class="meta foot">The code travels separately from the link. Wrong codes lock the share after a few tries.</p>
 </div>
 <script type="module">
 // Single client-side transfer store — sole owner of retry and resume state.
@@ -114,6 +133,19 @@ const Transfers = (() => {
   };
 })();
 
+// File icon lookup: extension -> short text glyph rendered as a CSS shape (no images).
+function fileKind(name) {
+  const m = /\.([A-Za-z0-9]{1,5})\s*$/.exec(name || '');
+  const ext = (m ? m[1] : '').toLowerCase();
+  if (['png','jpg','jpeg','gif','webp','svg','bmp','ico','heic','avif'].includes(ext)) return 'IMG';
+  if (['mp4','mov','mkv','webm','avi','m4v'].includes(ext)) return 'VID';
+  if (['mp3','wav','ogg','flac','m4a','aac'].includes(ext)) return 'AUD';
+  if (['zip','tar','gz','rar','7z','bz2','xz'].includes(ext)) return 'ZIP';
+  if (ext === 'pdf') return 'PDF';
+  if (['doc','docx','odt','rtf','txt','md'].includes(ext)) return 'DOC';
+  return 'FILE';
+}
+
 const ID = {{ share_id | tojson }};
 const MAX_RETRIES = 5;
 const BACKOFF_MS = [1000, 2000, 4000, 8000, 16000];
@@ -126,6 +158,7 @@ async function loadInfo() {
   if (!r.ok) {
     el.textContent = j.error || 'Not found';
     document.getElementById('fname').textContent = 'Not found';
+    document.getElementById('ficon').textContent = 'FILE';
     return;
   }
   infoSize = j.size_bytes || j.size || 0;
@@ -133,6 +166,7 @@ async function loadInfo() {
   const exp = new Date(j.expires_at * 1000).toLocaleString();
   el.textContent = `${j.filename} · ${kb} KB · ${j.downloads_left} downloads left · expires ${exp} · ${j.status}`;
   document.getElementById('fname').textContent = j.filename;
+  document.getElementById('ficon').textContent = fileKind(j.filename);
   document.getElementById('fsize').textContent = kb + ' KB';
   document.getElementById('fleft').textContent = String(j.downloads_left);
   document.getElementById('fexp').textContent = exp;
@@ -229,7 +263,12 @@ btn.addEventListener('click', async () => {
       const r = await fetch(url, { headers, signal: currentAbort.signal });
       if (r.status === 403 || r.status === 404 || r.status === 410 || r.status === 416) {
         let j = {}; try { j = await r.json(); } catch (e) {}
-        msg.textContent = 'Error: ' + (j.error || r.status);
+        const errText = j.error || ('HTTP ' + r.status);
+        if (/wrong code/i.test(errText)) {
+          msg.textContent = 'Wrong code — ' + errText + '. Check the code and try again.';
+        } else {
+          msg.textContent = 'Error: ' + errText;
+        }
         msg.classList.add('err');
         Transfers.finish(ID, 'download', 'error');
         break;
@@ -350,5 +389,6 @@ loadInfo();
 export { Transfers };
 </script>
 {% endif %}
+</div>
 </body>
 </html>

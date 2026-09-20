@@ -6,34 +6,40 @@
 <title>TunnelShare — send &amp; receive</title>
 <link rel="icon" href="data:,">
 <style>
-:root{color-scheme:light dark;--accent:#F6821F}
+:root{color-scheme:light dark;--accent:#F6821F;--card:#ffffff;--ink:#1a1a1a;--muted:#6b7280;--line:#e5e7eb;--shadow:0 12px 32px rgba(0,0,0,.10);--radius:14px}
+@media(prefers-color-scheme:dark){:root{--card:#1c1e21;--ink:#f3f4f6;--muted:#9ca3af;--line:#33373d;--shadow:0 12px 32px rgba(0,0,0,.45)}}
 *{box-sizing:border-box}
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:24px;line-height:1.5;max-width:1020px;margin-inline:auto}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;margin:0;padding:32px 16px 48px;line-height:1.5;max-width:1020px;margin-inline:auto;color:var(--ink);background:transparent}
 h1{font-size:1.5rem;margin:0 0 4px}
-p.sub{color:gray;margin:0 0 20px}
+h1 b{color:var(--accent)}
+p.sub{color:var(--muted);margin:0 0 6px}
+p.caution{font-size:.85rem;color:#9a4a00;background:#fff4e8;border:1px solid #f3c98f;border-radius:10px;padding:8px 12px;margin:0 0 20px}
+@media(prefers-color-scheme:dark){p.caution{background:#3a2410;color:#ffb35c;border-color:#6b4211}}
 .panes{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
 @media(max-width:800px){.panes{grid-template-columns:1fr}}
-section.card,div.card,form.card{border:1px solid #ccc;border-radius:12px;padding:16px}
+section.card,div.card,form.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px}
 .pane-title{font-size:1.1rem;margin:0 0 8px}
 label{display:block;margin:12px 0 4px;font-weight:600}
-input[type=file],select,input[type=number],input[type=text]{width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;font-size:1rem}
-input.codebox{font-size:1.6rem;letter-spacing:.25em;text-align:center;font-family:ui-monospace,Menlo,Consolas,monospace;padding:12px}
-button{width:100%;margin-top:16px;padding:12px;border:0;border-radius:8px;font-size:1.05rem;cursor:pointer;background:#1a73e8;color:#fff}
+input[type=file],select,input[type=number],input[type=text]{width:100%;padding:10px;border:1px solid #9aa0a6;border-radius:8px;font-size:1rem;background:transparent;color:inherit}
+input.codebox{font-size:1.6rem;letter-spacing:.25em;text-align:center;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:12px}
+input.codebox:focus{border-color:var(--accent);outline:2px solid var(--accent)}
+button{width:100%;margin-top:16px;padding:12px;border:0;border-radius:10px;font-size:1.05rem;cursor:pointer;background:#1a73e8;color:#fff}
 button:disabled{opacity:.6}
-button.big{font-size:1.25rem;padding:16px;font-weight:800}
+button.big{font-size:1.25rem;padding:16px;font-weight:800;background:var(--accent);border-radius:12px}
 button#recv-pause,button.ghost{background:#555}
-button.copybtn{width:auto;margin-top:8px;padding:8px 16px;font-size:.95rem;background:#333}
-#result{word-break:break-all;margin-top:16px;display:none;border:1px dashed #ccc;border-radius:8px;padding:12px}
-code.code{font-size:2rem;letter-spacing:.25em;background:#f1f3f4;color:#111;padding:8px 16px;border-radius:8px;display:inline-block;font-family:ui-monospace,Menlo,Consolas,monospace}
+button.copybtn{width:auto;margin-top:8px;padding:8px 16px;font-size:.95rem;background:#333;border-radius:8px}
+#result{word-break:break-all;margin-top:16px;display:none;border:1px dashed #9aa0a6;border-radius:8px;padding:12px}
+code.code{font-size:2rem;letter-spacing:.25em;background:#f1f3f4;color:#111;padding:8px 16px;border-radius:8px;display:inline-block;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 .coderow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center}
 .row{display:flex;gap:12px}.row>div{flex:1}
-.hint{font-size:.85rem;color:gray}
-.progress{height:12px;background:#eee;border-radius:6px;overflow:hidden;margin-top:12px;display:none}
+.hint{font-size:.85rem;color:var(--muted)}
+.progress{height:12px;background:#e9ecef;border-radius:6px;overflow:hidden;margin-top:12px;display:none}
+@media(prefers-color-scheme:dark){.progress{background:#33373d}}
 .progress>div{height:100%;width:0%;background:var(--accent);transition:width .15s}
-.ulpct,.dlpct{font-size:.85rem;color:gray;margin-top:4px;display:none}
+.ulpct,.dlpct{font-size:.85rem;color:var(--muted);margin-top:4px;display:none}
 #recv-msg{margin-top:12px;font-weight:600;min-height:1.5em}
 table.shares{width:100%;border-collapse:collapse;font-size:.88rem}
-table.shares th,table.shares td{text-align:left;padding:6px 8px;border-bottom:1px solid #ddd;vertical-align:top}
+table.shares th,table.shares td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 table.shares td.fname{word-break:break-all}
 .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:.75rem;font-weight:700;background:#eee;color:#333}
 .pill.ACTIVE{background:#F6821F;color:#fff}
@@ -41,15 +47,18 @@ table.shares td.fname{word-break:break-all}
 .pill.EXHAUSTED{background:#fbe3c9;color:#7a3c00}
 .pill.LOCKED{background:#f3c1c1;color:#7a0000}
 tr.mine{background:#fff4e8}
+@media(prefers-color-scheme:dark){tr.mine{background:#3a2410}}
 .badge{font-size:.7rem;font-weight:700;color:#7a3c00;border:1px solid var(--accent);border-radius:4px;padding:0 4px;margin-left:6px}
-.meta{font-size:.8rem;color:gray}
+@media(prefers-color-scheme:dark){.badge{color:#ffb35c}}
+.meta{font-size:.8rem;color:var(--muted)}
 .dash{margin-top:24px}
-a.openlink{white-space:nowrap}
+a.openlink{white-space:nowrap;color:var(--accent)}
 </style>
 </head>
 <body>
-<h1>TunnelShare</h1>
+<h1>Tunnel<b>Share</b></h1>
 <p class="sub">Ephemeral file drop. Upload &rarr; share link + 6-digit code &rarr; it self-destructs.</p>
+<p class="caution">Anyone holding this page URL sees all shares — only ever send /s/ links.</p>
 
 <div class="panes">
   <!-- LEFT pane: Send -->
