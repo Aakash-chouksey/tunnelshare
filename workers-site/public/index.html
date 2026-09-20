@@ -125,8 +125,8 @@ https://olive-dog-41.trycloudflare.com/s/a1b2c3d4</pre>
 brew install cloudflared</pre><p class="hint">Linux / Windows: grab the binary from the Cloudflare docs.</p></div>
     <div class="card"><div class="step-num">02</div><h3>Run your app</h3><pre class="codeblock"><span class="c"># one command — venv, deps, serve :8080</span>
 ./setup.sh --run</pre><p class="hint">Manual path: <code>pip install -r requirements.txt &amp;&amp; python app.py</code>.</p></div>
-    <div class="card"><div class="step-num">03</div><h3>Open the tunnel</h3><pre class="codeblock"><span class="c"># public encrypted URL</span>
-cloudflared tunnel --url http://127.0.0.1:8080</pre><p class="hint">You get something like <code>https://olive-dog-41.trycloudflare.com</code>.</p></div>
+    <div class="card"><div class="step-num">03</div><h3>Open the tunnel</h3><pre class="codeblock"><span class="c"># HTTP/2 transport: QUIC stalls through VPNs</span>
+TUNNEL_TRANSPORT_PROTOCOL=http2 cloudflared tunnel --url http://127.0.0.1:8080</pre><p class="hint">You get something like <code>https://olive-dog-41.trycloudflare.com</code>.</p></div>
     <div class="card"><div class="step-num">04</div><h3>Share the link</h3><pre class="codeblock"><span class="c"># share payload: link + 6-digit code</span>
 https://olive-dog-41.trycloudflare.com/s/a1b2c3d4
 code: 482910 (shown once)</pre><p class="hint">Receiver enters the code to unlock the download. Interrupted transfers auto-resume.</p></div>

@@ -79,8 +79,11 @@ verify/download page for the share.
 ## Tunnel step
 
 ```bash
-cloudflared tunnel --url http://127.0.0.1:8080
+TUNNEL_TRANSPORT_PROTOCOL=http2 cloudflared tunnel --url http://127.0.0.1:8080
 ```
+
+HTTP/2 transport is required, not optional. QUIC stalls through VPNs
+(measured 90s stalls on this path). `./setup.sh --run` sets it for you.
 
 Open the printed `https://*.trycloudflare.com` URL on your phone or send
 it to a friend. The app binds `127.0.0.1` only — the tunnel is the only

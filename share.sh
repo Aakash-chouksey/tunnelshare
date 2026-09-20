@@ -18,5 +18,5 @@ for i in $(seq 1 30); do
   sleep 0.5
 done
 
-echo "Starting Cloudflare quick tunnel…"
-exec cloudflared tunnel --url http://localhost:8080
+echo "Starting Cloudflare quick tunnel (HTTP/2 transport for VPN reliability)…"
+exec env TUNNEL_TRANSPORT_PROTOCOL=http2 cloudflared tunnel --url http://localhost:8080

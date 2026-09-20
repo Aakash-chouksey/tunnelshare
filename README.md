@@ -12,8 +12,8 @@ download budget.
 ```bash
 pip install -r requirements.txt
 python app.py
-# in another terminal:
-cloudflared tunnel --url http://localhost:8080
+# in another terminal (HTTP/2 transport: QUIC stalls through VPNs):
+TUNNEL_TRANSPORT_PROTOCOL=http2 cloudflared tunnel --url http://localhost:8080
 ```
 
 Or one-shot:

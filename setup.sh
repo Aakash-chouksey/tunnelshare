@@ -176,8 +176,11 @@ start_app() {
 }
 
 open_tunnel() {
-  log "Opening Cloudflare quick tunnel..."
-  setsid cloudflared tunnel --url http://127.0.0.1:8080 >"$TUNNEL_LOG" 2>&1 < /dev/null &
+  log "Opening Cloudflare quick tunnel (HTTP/2 transport: reliable through VPNs)..."
+  # HTTP/2 over TCP survives networks where QUIC/UDP stalls (measured:
+  # QUIC gave 90s stalls and 7s tiny responses through a VPN, HTTP/2
+  # gives 1-7s uploads up to 2MB on the same path).
+  TUNNEL_TRANSPORT_PROTOCOL=http2 setsid cloudflared tunnel --url http://127.0.0.1:8080 >"$TUNNEL_LOG" 2>&1 < /dev/null &
   local url=""
   for _ in $(seq 1 60); do
     if [ -f "$TUNNEL_LOG" ]; then
