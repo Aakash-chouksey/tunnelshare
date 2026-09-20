@@ -4,7 +4,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TunnelShare — download {{ share_id }}</title>
 <style>
-:root{color-scheme:light dark}
+:root{color-scheme:light dark;--accent:#F6821F}
 *{box-sizing:border-box}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:24px;line-height:1.5;max-width:560px;margin-inline:auto}
 h1{font-size:1.4rem}
@@ -12,8 +12,12 @@ h1{font-size:1.4rem}
 label{display:block;margin:12px 0 4px;font-weight:600}
 input{width:100%;padding:12px;border:1px solid #ccc;border-radius:8px;font-size:1.3rem;letter-spacing:.2em;text-align:center}
 button{width:100%;margin-top:16px;padding:12px;border:0;border-radius:8px;font-size:1.05rem;cursor:pointer;background:#1a73e8;color:#fff}
+button:disabled{opacity:.6}
 .meta{color:gray;font-size:.9rem}
 #msg{margin-top:12px;font-weight:600}
+.progress{height:12px;background:#eee;border-radius:6px;overflow:hidden;margin-top:12px;display:none}
+.progress>div{height:100%;width:0%;background:var(--accent);transition:width .15s}
+#dlabel{font-size:.85rem;color:gray;margin-top:4px;display:none}
 </style>
 <h1>TunnelShare download</h1>
 {% if not found %}
@@ -24,16 +28,48 @@ button{width:100%;margin-top:16px;padding:12px;border:0;border-radius:8px;font-s
   <label for="code">6-digit code</label>
   <input id="code" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••••">
   <button id="btn">Download</button>
+  <div class="progress" id="dprogress"><div id="dbar"></div></div>
+  <div id="dlabel">0%</div>
   <p id="msg"></p>
 </div>
-<script>
+<script type="module">
+// Single client-side transfer store.
+// Transfer = {share_id, direction: upload|download, loaded, total, state: active|done|error}
+const Transfers = (() => {
+  const map = new Map();
+  return {
+    start(share_id, direction, total) {
+      const t = { share_id, direction, loaded: 0, total: total || 0, state: 'active' };
+      map.set(share_id + ':' + direction, t);
+      return t;
+    },
+    progress(share_id, direction, loaded, total) {
+      const t = map.get(share_id + ':' + direction);
+      if (!t) return null;
+      t.loaded = loaded;
+      if (total) t.total = total;
+      return t;
+    },
+    finish(share_id, direction, state) {
+      const t = map.get(share_id + ':' + direction);
+      if (!t) return null;
+      t.state = state || 'done';
+      return t;
+    },
+    get(share_id, direction) { return map.get(share_id + ':' + direction) || null; },
+    all() { return [...map.values()]; },
+  };
+})();
+
 const ID = {{ share_id | tojson }};
+let infoSize = 0;
 async function loadInfo() {
   const r = await fetch('/api/info/' + encodeURIComponent(ID));
   const j = await r.json();
   const el = document.getElementById('meta');
   if (!r.ok) { el.textContent = j.error || 'Not found'; return; }
-  const kb = (j.size / 1024).toFixed(1);
+  infoSize = j.size_bytes || j.size || 0;
+  const kb = (infoSize / 1024).toFixed(1);
   const exp = new Date(j.expires_at * 1000).toLocaleString();
   el.textContent = `${j.filename} · ${kb} KB · ${j.downloads_left} downloads left · expires ${exp} · ${j.status}`;
   if (j.status !== 'ACTIVE') document.getElementById('btn').disabled = true;
@@ -41,7 +77,13 @@ async function loadInfo() {
 document.getElementById('btn').addEventListener('click', async () => {
   const code = document.getElementById('code').value.trim();
   const msg = document.getElementById('msg');
+  const bar_wrap = document.getElementById('dprogress');
+  const bar = document.getElementById('dbar');
+  const label = document.getElementById('dlabel');
   msg.textContent = 'Checking…';
+  bar_wrap.style.display = 'block'; label.style.display = 'block';
+  bar.style.width = '0%'; label.textContent = '0%';
+  Transfers.start(ID, 'download', infoSize);
   const r = await fetch('/api/download', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({id: ID, code})
@@ -49,20 +91,44 @@ document.getElementById('btn').addEventListener('click', async () => {
   if (!r.ok) {
     let j = {}; try { j = await r.json(); } catch(e) {}
     msg.textContent = 'Error: ' + (j.error || r.status);
+    Transfers.finish(ID, 'download', 'error');
     loadInfo();
     return;
   }
-  const blob = await r.blob();
+  const total = parseInt(r.headers.get('Content-Length') || '0', 10) || infoSize || 0;
+  Transfers.progress(ID, 'download', 0, total);
+  const reader = r.body.getReader();
+  const chunks = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
+    Transfers.progress(ID, 'download', received, total);
+    if (total) {
+      const pct = Math.round(received / total * 100);
+      bar.style.width = Math.min(100, pct) + '%';
+      label.textContent = Math.min(100, pct) + '%';
+    } else {
+      label.textContent = Math.round(received / 1024) + ' KB received';
+    }
+  }
+  bar.style.width = '100%'; label.textContent = '100%';
+  Transfers.progress(ID, 'download', received, received);
+  Transfers.finish(ID, 'download', 'done');
+  const blob = new Blob(chunks);
   let name = 'download';
   const cd = r.headers.get('Content-Disposition') || '';
   const m = /filename="?(.*)"?/.exec(cd);
-  if (m) name = m[1];
+  if (m) name = m[1].replace(/[";]$/, '');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  msg.textContent = 'Download started.';
+  msg.textContent = 'Download complete.';
   loadInfo();
 });
 loadInfo();
+export { Transfers };
 </script>
 {% endif %}

@@ -250,6 +250,27 @@ def api_info(share_id):
     })
 
 
+@app.get("/api/shares")
+def api_shares():
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM shares ORDER BY created_at DESC LIMIT 20"
+    ).fetchall()
+    out = []
+    for row in rows:
+        share = row_to_share(row)
+        out.append({
+            "id": share["id"],
+            "filename": share["filename"],
+            "size_bytes": share["size_bytes"],
+            "expires_at": share["expires_at"],
+            "downloads_left": max(0, share["max_downloads"] - share["download_count"]),
+            "download_count": share["download_count"],
+            "status": resolve_status(share),
+        })
+    return jsonify(out)
+
+
 @app.post("/api/download")
 def api_download():
     data = request.get_json(force=True, silent=True) or {}
