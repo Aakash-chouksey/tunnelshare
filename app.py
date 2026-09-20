@@ -310,6 +310,56 @@ def api_download():
                      download_name=share["filename"], mimetype=share["mime"])
 
 
+@app.get("/api/download")
+def api_download_get():
+    share_id = request.args.get("id", "")
+    code = str(request.args.get("code", ""))
+    db = get_db()
+    share = get_share(db, share_id)
+    if share is None:
+        return jsonify({"error": "not found"}), 404
+
+    status = refresh_status(db, share)
+    if status != "ACTIVE":
+        return jsonify({"error": f"share is {status.lower()}"}), 403
+
+    if not hmac.compare_digest(hash_code(code, share["salt"]), share["code_hash"]):
+        attempt_count = share["attempt_count"] + 1
+        db.execute("UPDATE shares SET attempt_count = ? WHERE id = ?", (attempt_count, share_id))
+        db.commit()
+        share["attempt_count"] = attempt_count
+        status = refresh_status(db, share)
+        if status == "LOCKED":
+            return jsonify({"error": "too many wrong codes, share is locked"}), 403
+        left = MAX_ATTEMPTS - attempt_count
+        return jsonify({"error": f"wrong code ({left} attempts left)"}), 403
+
+    path = os.path.join(UPLOAD_DIR, share["stored_name"])
+    if not os.path.isfile(path):
+        return jsonify({"error": "file no longer available"}), 410
+
+    # Increment budget on full-body (200) responses and on ranges that
+    # start at byte 0 (a whole file can be fetched that way). Resume
+    # retries start past byte 0 and stay free.
+    first_byte = 0
+    range_hdr = request.headers.get("Range") or ""
+    if range_hdr:
+        try:
+            first_byte = int(range_hdr.split("=")[1].split("-")[0] or 0)
+        except (IndexError, ValueError):
+            first_byte = 0
+    if not range_hdr or first_byte == 0:
+        db.execute(
+            "UPDATE shares SET download_count = download_count + 1 WHERE id = ?", (share_id,)
+        )
+        db.commit()
+        share["download_count"] += 1
+        refresh_status(db, share)
+    return send_file(path, as_attachment=True,
+                     download_name=share["filename"], mimetype=share["mime"],
+                     conditional=True)
+
+
 @app.post("/api/delete")
 def api_delete():
     data = request.get_json(force=True, silent=True) or {}

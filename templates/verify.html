@@ -13,6 +13,7 @@ label{display:block;margin:12px 0 4px;font-weight:600}
 input{width:100%;padding:12px;border:1px solid #ccc;border-radius:8px;font-size:1.3rem;letter-spacing:.2em;text-align:center}
 button{width:100%;margin-top:16px;padding:12px;border:0;border-radius:8px;font-size:1.05rem;cursor:pointer;background:#1a73e8;color:#fff}
 button:disabled{opacity:.6}
+button#pauseBtn{background:#555}
 .meta{color:gray;font-size:.9rem}
 #msg{margin-top:12px;font-weight:600}
 .progress{height:12px;background:#eee;border-radius:6px;overflow:hidden;margin-top:12px;display:none}
@@ -28,41 +29,65 @@ button:disabled{opacity:.6}
   <label for="code">6-digit code</label>
   <input id="code" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••••">
   <button id="btn">Download</button>
+  <button id="pauseBtn" style="display:none">Pause</button>
   <div class="progress" id="dprogress"><div id="dbar"></div></div>
   <div id="dlabel">0%</div>
   <p id="msg"></p>
 </div>
 <script type="module">
-// Single client-side transfer store.
-// Transfer = {share_id, direction: upload|download, loaded, total, state: active|done|error}
+// Single client-side transfer store — sole owner of retry and resume state.
+// Transfer = {share_id, direction, loaded, total, next_byte, retries, state: active|paused|error|done}
 const Transfers = (() => {
   const map = new Map();
+  const k = (share_id, direction) => share_id + ':' + direction;
   return {
     start(share_id, direction, total) {
-      const t = { share_id, direction, loaded: 0, total: total || 0, state: 'active' };
-      map.set(share_id + ':' + direction, t);
+      const t = { share_id, direction, loaded: 0, total: total || 0, next_byte: 0, retries: 0, state: 'active' };
+      map.set(k(share_id, direction), t);
       return t;
     },
     progress(share_id, direction, loaded, total) {
-      const t = map.get(share_id + ':' + direction);
+      const t = map.get(k(share_id, direction));
       if (!t) return null;
       t.loaded = loaded;
+      t.next_byte = loaded;
       if (total) t.total = total;
       return t;
     },
+    noteRetry(share_id, direction) {
+      const t = map.get(k(share_id, direction));
+      if (!t) return null;
+      t.retries += 1;
+      return t;
+    },
+    pause(share_id, direction) {
+      const t = map.get(k(share_id, direction));
+      if (!t) return null;
+      if (t.state === 'active') t.state = 'paused';
+      return t;
+    },
+    resume(share_id, direction) {
+      const t = map.get(k(share_id, direction));
+      if (!t) return null;
+      if (t.state === 'paused') t.state = 'active';
+      return t;
+    },
     finish(share_id, direction, state) {
-      const t = map.get(share_id + ':' + direction);
+      const t = map.get(k(share_id, direction));
       if (!t) return null;
       t.state = state || 'done';
       return t;
     },
-    get(share_id, direction) { return map.get(share_id + ':' + direction) || null; },
+    get(share_id, direction) { return map.get(k(share_id, direction)) || null; },
     all() { return [...map.values()]; },
   };
 })();
 
 const ID = {{ share_id | tojson }};
+const MAX_RETRIES = 5;
+const BACKOFF_MS = [1000, 2000, 4000, 8000, 16000];
 let infoSize = 0;
+
 async function loadInfo() {
   const r = await fetch('/api/info/' + encodeURIComponent(ID));
   const j = await r.json();
@@ -74,58 +99,196 @@ async function loadInfo() {
   el.textContent = `${j.filename} · ${kb} KB · ${j.downloads_left} downloads left · expires ${exp} · ${j.status}`;
   if (j.status !== 'ACTIVE') document.getElementById('btn').disabled = true;
 }
-document.getElementById('btn').addEventListener('click', async () => {
+
+function fmtBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1024 / 1024).toFixed(2) + ' MB';
+}
+
+function render(t, notice) {
+  const bar = document.getElementById('dbar');
+  const label = document.getElementById('dlabel');
+  const msg = document.getElementById('msg');
+  if (!t) return;
+  const pct = t.total ? Math.min(100, Math.round(t.loaded / t.total * 100)) : 0;
+  bar.style.width = (t.total ? pct : 0) + '%';
+  let s = t.total
+    ? `${fmtBytes(t.loaded)} / ${fmtBytes(t.total)} (${pct}%)`
+    : `${fmtBytes(t.loaded)} received`;
+  if (notice) s += ' · ' + notice;
+  label.textContent = s;
+  if (notice) msg.textContent = notice;
+}
+
+const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+
+async function waitForResume() {
+  for (;;) {
+    const t = Transfers.get(ID, 'download');
+    if (!t || t.state !== 'paused') return t;
+    await sleep(200);
+  }
+}
+
+const btn = document.getElementById('btn');
+const pauseBtn = document.getElementById('pauseBtn');
+// Single in-flight abort handle; pause/resume state itself lives in Transfers.
+let currentAbort = null;
+pauseBtn.addEventListener('click', () => {
+  const t = Transfers.get(ID, 'download');
+  if (!t) return;
+  if (t.state === 'active') {
+    Transfers.pause(ID, 'download');
+    pauseBtn.textContent = 'Resume';
+    render(t, `Paused at ${fmtBytes(t.loaded)} / ${fmtBytes(t.total)}. Press Resume to continue.`);
+    if (currentAbort) { try { currentAbort.abort(); } catch (e) {} }
+  } else if (t.state === 'paused') {
+    Transfers.resume(ID, 'download');
+    pauseBtn.textContent = 'Pause';
+    render(t, `Resuming from byte ${t.next_byte}…`);
+  }
+});
+
+btn.addEventListener('click', async () => {
   const code = document.getElementById('code').value.trim();
   const msg = document.getElementById('msg');
   const bar_wrap = document.getElementById('dprogress');
-  const bar = document.getElementById('dbar');
   const label = document.getElementById('dlabel');
-  msg.textContent = 'Checking…';
+  if (!code) { msg.textContent = 'Enter the 6-digit code first.'; return; }
+  msg.textContent = 'Starting…';
   bar_wrap.style.display = 'block'; label.style.display = 'block';
-  bar.style.width = '0%'; label.textContent = '0%';
+  document.getElementById('dbar').style.width = '0%';
+  btn.disabled = true;
+  pauseBtn.style.display = 'block';
+  pauseBtn.textContent = 'Pause';
+  pauseBtn.disabled = false;
+
   Transfers.start(ID, 'download', infoSize);
-  const r = await fetch('/api/download', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({id: ID, code})
-  });
-  if (!r.ok) {
-    let j = {}; try { j = await r.json(); } catch(e) {}
-    msg.textContent = 'Error: ' + (j.error || r.status);
-    Transfers.finish(ID, 'download', 'error');
-    loadInfo();
-    return;
-  }
-  const total = parseInt(r.headers.get('Content-Length') || '0', 10) || infoSize || 0;
-  Transfers.progress(ID, 'download', 0, total);
-  const reader = r.body.getReader();
   const chunks = [];
   let received = 0;
+  let total = infoSize || 0;
+  let fileName = 'download';
+
   for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    received += value.length;
-    Transfers.progress(ID, 'download', received, total);
-    if (total) {
-      const pct = Math.round(received / total * 100);
-      bar.style.width = Math.min(100, pct) + '%';
-      label.textContent = Math.min(100, pct) + '%';
-    } else {
-      label.textContent = Math.round(received / 1024) + ' KB received';
+    const t = Transfers.get(ID, 'download');
+    if (!t || t.state === 'done' || t.state === 'error') break;
+    if (t.state === 'paused') { await waitForResume(); continue; }
+
+    const startOffset = t.next_byte;
+    const headers = {};
+    // First attempt (byte 0) goes out with no Range header so the server
+    // counts exactly one full-body (200) download. Resumes use
+    // Range: bytes=<next_byte>- and are served as 206 without touching
+    // the download budget.
+    if (startOffset > 0) headers['Range'] = 'bytes=' + startOffset + '-';
+    const url = '/api/download?id=' + encodeURIComponent(ID) + '&code=' + encodeURIComponent(code);
+    currentAbort = new AbortController();
+    try {
+      const r = await fetch(url, { headers, signal: currentAbort.signal });
+      if (r.status === 403 || r.status === 404 || r.status === 410 || r.status === 416) {
+        let j = {}; try { j = await r.json(); } catch (e) {}
+        msg.textContent = 'Error: ' + (j.error || r.status);
+        Transfers.finish(ID, 'download', 'error');
+        break;
+      }
+      if (!r.ok && r.status !== 206) {
+        throw new Error('HTTP ' + r.status);
+      }
+      // Learn total size: prefer Content-Range total on 206, else Content-Length.
+      const cr = r.headers.get('Content-Range');
+      if (r.status === 206 && cr) {
+        const m = /\/(\d+)\s*$/.exec(cr);
+        if (m) total = parseInt(m[1], 10) || total;
+      } else {
+        const cl = parseInt(r.headers.get('Content-Length') || '0', 10);
+        if (cl) {
+          total = (r.status === 206 && startOffset > 0) ? startOffset + cl : cl;
+        }
+      }
+      if (!total) total = infoSize || 0;
+      // Server ignored our Range and sent 200 full body: restart assembly.
+      if (r.status === 200 && startOffset > 0) {
+        chunks.length = 0;
+        received = 0;
+        Transfers.progress(ID, 'download', 0, total);
+      } else {
+        Transfers.progress(ID, 'download', received, total);
+      }
+      const cd = r.headers.get('Content-Disposition') || '';
+      const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/.exec(cd);
+      if (m) { try { fileName = decodeURIComponent(m[1].replace(/[";]$/, '')); } catch (e) { fileName = m[1]; } }
+      render(Transfers.get(ID, 'download'), startOffset > 0 ? `Resumed from byte ${startOffset}.` : '');
+
+      if (!r.body) throw new Error('empty body');
+      const reader = r.body.getReader();
+      try {
+        for (;;) {
+          const cur = Transfers.get(ID, 'download');
+          if (cur && cur.state === 'paused') {
+            try { await reader.cancel(); } catch (e) {}
+            break;
+          }
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          received += value.length;
+          Transfers.progress(ID, 'download', received, total);
+          render(Transfers.get(ID, 'download'), '');
+        }
+      } finally {
+        try { reader.releaseLock(); } catch (e) {}
+      }
+      const after = Transfers.get(ID, 'download');
+      if (after && after.state === 'paused') { await waitForResume(); continue; }
+      if (total && received < total) {
+        // Connection dropped mid-stream: re-request from next_byte.
+        throw new Error(`truncated: got ${received} of ${total}`);
+      }
+      if (!total) total = received;
+      // Complete.
+      Transfers.progress(ID, 'download', received, total);
+      Transfers.finish(ID, 'download', 'done');
+      render(Transfers.get(ID, 'download'), '');
+      document.getElementById('dbar').style.width = '100%';
+      const blob = new Blob(chunks);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = fileName; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      msg.textContent = 'Download complete.';
+      break;
+    } catch (e) {
+      const cur = Transfers.get(ID, 'download');
+      if (!cur || cur.state === 'done' || cur.state === 'error') break;
+      if (cur.state === 'paused') { await waitForResume(); continue; }
+      if (e && e.name === 'AbortError' && cur.state === 'paused') { await waitForResume(); continue; }
+      Transfers.noteRetry(ID, 'download');
+      const now = Transfers.get(ID, 'download');
+      if (now.retries > MAX_RETRIES) {
+        msg.textContent = 'Error: download failed after ' + MAX_RETRIES + ' retries (' + (e.message || e) + ')';
+        Transfers.finish(ID, 'download', 'error');
+        break;
+      }
+      const wait = BACKOFF_MS[now.retries - 1] || 16000;
+      // received is the source of truth for next_byte; keep store in sync.
+      Transfers.progress(ID, 'download', received, total);
+      render(now, `Retry ${now.retries}/${MAX_RETRIES} in ${wait / 1000}s… (${fmtBytes(received)} / ${fmtBytes(total)}) — ${e.message || e}`);
+      // Backoff that still honours Pause.
+      let slept = 0;
+      while (slept < wait) {
+        const c2 = Transfers.get(ID, 'download');
+        if (c2 && c2.state === 'paused') { await waitForResume(); break; }
+        const step = Math.min(200, wait - slept);
+        await sleep(step);
+        slept += step;
+      }
+      continue; // resume loop re-requests from next_byte
+    } finally {
+      currentAbort = null;
     }
   }
-  bar.style.width = '100%'; label.textContent = '100%';
-  Transfers.progress(ID, 'download', received, received);
-  Transfers.finish(ID, 'download', 'done');
-  const blob = new Blob(chunks);
-  let name = 'download';
-  const cd = r.headers.get('Content-Disposition') || '';
-  const m = /filename="?(.*)"?/.exec(cd);
-  if (m) name = m[1].replace(/[";]$/, '');
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = name; a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  msg.textContent = 'Download complete.';
+  btn.disabled = false;
+  pauseBtn.style.display = 'none';
   loadInfo();
 });
 loadInfo();
