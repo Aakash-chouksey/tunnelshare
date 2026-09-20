@@ -3,8 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TunnelShare — ephemeral file sharing over Cloudflare Tunnel</title>
-<meta name="description" content="TunnelShare: upload a file, share a link + 6-digit code, it self-destructs. Self-hostable with Flask + cloudflared.">
+<title>TunnelShare — Localhost, meet the Internet</title>
+<meta name="description" content="TunnelShare: one command turns your laptop into a public encrypted URL. Share a link plus a one-time 6-digit code with auto-resume downloads. No account, no DNS, no open ports.">
+<meta name="theme-color" content="#0B0D12">
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -13,148 +14,82 @@
   <div class="nav-inner">
     <a class="brand" href="#top"><span class="logo-mark" aria-hidden="true"></span>TunnelShare</a>
     <nav class="nav-links">
-      <a class="hide-m" href="#demo">Live demo</a>
       <a class="hide-m" href="#how">How it works</a>
-      <a class="hide-m" href="#features">Features</a>
-      <a class="hide-m" href="#selfhost">Self-host</a>
-      <a class="hide-m" href="#quickstart">60-second setup</a>
-      <a class="hide-m" href="#agent-setup">Agent setup</a>
-      <a class="hide-m" href="#faq">FAQ</a>
+      <a class="hide-m" href="#agent">Agents</a>
+      <a class="hide-m" href="#setup">Setup</a>
+      <a class="hide-m" href="#demo">Live demo</a>
       <a class="btn small" href="https://github.com/Aakash-chouksey/tunnelshare">GitHub</a>
     </nav>
   </div>
 </header>
 
-<!-- HERO -->
+<!-- HERO with command block -->
 <section class="hero" id="top">
-  <div class="hero-grid">
-    <div>
-      <span class="eyebrow">Flask + Cloudflare Tunnel</span>
-      <h1>Send a file. <span class="grad">Share a code.</span> Gone when read.</h1>
-      <p class="lead">TunnelShare is an ephemeral drop: upload &rarr; get a share link plus a one-time 6-digit code &rarr; it expires, exhausts its downloads, or locks after 5 wrong guesses.</p>
-      <div class="hero-cta">
-        <a class="btn" href="https://github.com/Aakash-chouksey/tunnelshare">Get the code on GitHub</a>
-        <a class="btn ghost" href="#demo">Try the live mock</a>
-      </div>
-      <p class="hero-meta">50 MB max &middot; 1 / 24 / 72 h expiry &middot; 6-digit code shown once &middot; MIT licensed</p>
+  <div class="hero-inner">
+    <span class="eyebrow">JSON output for coding agents &middot; no account &middot; no DNS</span>
+    <h1>Localhost, meet the Internet.</h1>
+    <p class="lead">One command turns the server on your laptop into a public encrypted URL. TunnelShare adds a share link plus a one-time 6-digit code with auto-resume downloads. No account, no DNS, no open ports.</p>
+    <div class="cmd-block" role="group" aria-label="One-command setup">
+      <span class="cmd-prompt" aria-hidden="true">$</span>
+      <code id="hero-cmd">./setup.sh --run</code>
+      <button class="btn small cmd-copy" id="hero-copy-btn" type="button">Copy</button>
     </div>
-    <div class="browser" aria-label="Demo preview">
-      <div class="browser-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="browser-url">tunnelshare.example</span></div>
-      <div class="browser-body">
-        <div class="card dark-card" id="demo-upload-card-mini">
-          <h3>demo_report.pdf · 2.4 MB</h3>
-          <div class="progress"><div style="width:100%"></div></div>
-          <p class="hint">Link + code issued. Code shown <b>once</b>.</p>
-          <span class="code-big">482910</span>
-        </div>
-        <div class="card dark-card">
-          <h3>Verify to download</h3>
-          <p class="hint">Share <b>a1b2c3d4</b> &middot; 4 downloads left &middot; ACTIVE</p>
-        </div>
-      </div>
+    <p class="cmd-sub">Under the hood: <code>cloudflared tunnel --url http://localhost:8000</code> &middot; serves Flask on <code>127.0.0.1:8080</code></p>
+    <div class="hero-cta">
+      <a class="btn" href="https://github.com/Aakash-chouksey/tunnelshare">Get the code on GitHub</a>
+      <a class="btn ghost" href="#demo">Try the live mock</a>
     </div>
+    <!-- stats row -->
+    <dl class="stats" aria-label="TunnelShare at a glance">
+      <div class="stat"><dt>335+ cities</dt><dd>Cloudflare edge, anycast</dd></div>
+      <div class="stat"><dt>~60s to URL</dt><dd>clone to share link</dd></div>
+      <div class="stat"><dt>0 ports opened</dt><dd>nothing inbound</dd></div>
+      <div class="stat"><dt>free</dt><dd>MIT licensed</dd></div>
+    </dl>
   </div>
 </section>
 
-<!-- LIVE DEMO -->
-<section class="section" id="demo">
-  <p class="kicker">Live demo (mock, no backend)</p>
-  <h2>It works like this</h2>
-  <p class="sub">Interactive mock of the real send / share interface. Click upload, watch the progress bar, copy the fake link and code, then verify on the right. Nothing leaves your browser.</p>
-  <div class="demo-grid">
-    <div class="card" id="demo-upload-card">
-      <h3>1 · Send a file</h3>
-      <p class="hint">Mirrors <code>POST /api/upload</code> — file, expiry, max downloads.</p>
-      <div class="file-row">
-        <span class="file-icon" aria-hidden="true"></span>
-        <div class="file-meta"><b>demo_report.pdf</b><span>2.4 MB · expires 24 h · 5 downloads</span></div>
-      </div>
-      <div class="progress" aria-label="Upload progress"><div id="demo-progress-bar"></div></div>
-      <p style="margin-top:14px"><button class="btn" id="demo-upload-btn" type="button">Upload &amp; get link</button></p>
-      <div class="share-out" id="demo-share-out">
-        <div>Link: <a id="demo-share-link" href="https://tunnelshare.example/s/a1b2c3d4">https://tunnelshare.example/s/a1b2c3d4</a></div>
-        <div>Code (copy it now):<br><span class="code-big" id="demo-share-code">482910</span></div>
-      </div>
-    </div>
-    <div class="card" id="demo-verify-card">
-      <h3>2 · Verify to download</h3>
-      <p class="hint">Mirrors <code>GET /s/:id</code> + <code>POST /api/download</code>. Try code <code>482910</code>.</p>
-      <p class="hint">Share <b>a1b2c3d4</b> &middot; demo_report.pdf &middot; 4 downloads left &middot; ACTIVE</p>
-      <label for="demo-code-input" style="font-weight:700;font-size:.9rem">6-digit code</label>
-      <input class="code-input" id="demo-code-input" inputmode="numeric" maxlength="6" placeholder="••••••" autocomplete="off">
-      <p><button class="btn" id="demo-verify-btn" type="button">Download</button></p>
-      <p class="verify-msg" id="demo-verify-msg" role="status"></p>
-    </div>
-  </div>
-  <p class="demo-note">Demo interactivity only — no network calls. The real app gates downloads with a salted SHA-256 code hash and 5-strike lockout, with auto-resume downloads for interrupted transfers.</p>
-</section>
-
-<!-- HOW IT WORKS -->
+<!-- 3-STEP DIAGRAM -->
 <section class="section" id="how">
   <p class="kicker">How it works</p>
-  <h2>Upload &rarr; share &rarr; self-destruct</h2>
-  <p class="sub">Three steps, same as the real app.</p>
-  <div class="steps">
-    <div class="card"><div class="step-num orange">1</div><h3>Upload</h3><p class="hint">Pick a file (max 50 MB), expiry (1 / 24 / 72 h) and max downloads. Server stores bytes locally and returns a link plus a 6-digit code — shown once.</p></div>
-    <div class="card"><div class="step-num">2</div><h3>Share on two channels</h3><p class="hint">Send the <code>/s/&lt;id&gt;</code> link one way and the code another. The receiver enters the code to unlock the download.</p></div>
-    <div class="card"><div class="step-num">3</div><h3>It self-destructs</h3><p class="hint">Status resolves to ACTIVE, EXHAUSTED, EXPIRED or LOCKED. Expired bytes are deleted; 5 wrong codes lock the share.</p></div>
+  <h2>Your machine &rarr; Cloudflare edge &rarr; anyone, anywhere</h2>
+  <p class="sub">Outbound-only tunnel. Your port never opens to the Internet.</p>
+  <div class="flow-grid">
+    <div class="card flow-card">
+      <div class="flow-num">1</div>
+      <h3>Your machine</h3>
+      <p class="hint">localhost:8080 &middot; any framework (ours is Flask) &middot; nothing inbound</p>
+      <pre class="codeblock"><span class="c"># Flask serves locally only</span>
+python app.py</pre>
+    </div>
+    <div class="flow-arrow" aria-hidden="true">&rarr;</div>
+    <div class="card flow-card edge">
+      <div class="flow-num">2</div>
+      <h3>Cloudflare edge</h3>
+      <p class="hint">TLS &middot; DDoS filter &middot; anycast &middot; 335+ cities</p>
+      <pre class="codeblock"><span class="c"># public URL, encrypted</span>
+https://olive-dog-41.trycloudflare.com/s/a1b2c3d4</pre>
+    </div>
+    <div class="flow-arrow" aria-hidden="true">&rarr;</div>
+    <div class="card flow-card">
+      <div class="flow-num">3</div>
+      <h3>Anyone, anywhere</h3>
+      <p class="hint">Teammates and agents open the link, enter the 6-digit code, downloads auto-resume.</p>
+      <p class="pill-row"><span class="pill">link + code</span><span class="pill">auto-resume</span></p>
+    </div>
   </div>
 </section>
 
-<!-- FEATURES -->
-<section class="section" id="features">
-  <p class="kicker">Features</p>
-  <h2>Small, sharp, self-hostable</h2>
-  <p class="sub">Everything the Flask app does today — no database server, no object store.</p>
-  <div class="features">
-    <div class="card"><div class="feature-icon"></div><h3>Code-gated downloads</h3><p class="hint">6-digit code, salted SHA-256 hash, constant-time compare. The code is shown once at upload.</p></div>
-    <div class="card"><div class="feature-icon"></div><h3>5-strike lockout</h3><p class="hint">5 wrong guesses flip the share to LOCKED. Brute force gets nowhere.</p></div>
-    <div class="card"><div class="feature-icon"></div><h3>Expiry + download caps</h3><p class="hint">1 / 24 / 72-hour expiry and 1–100 max downloads. State machine: ACTIVE, EXHAUSTED, EXPIRED, LOCKED.</p></div>
-    <div class="card"><div class="feature-icon"></div><h3>50 MB, zero config</h3><p class="hint">SQLite + local upload dir. <code>pip install -r requirements.txt</code> and run.</p></div>
-    <div class="card"><div class="feature-icon"></div><h3>Cloudflare Tunnel ready</h3><p class="hint">Serve localhost securely with <code>cloudflared tunnel --url</code>. No port forwarding.</p></div>
-    <div class="card"><div class="feature-icon"></div><h3>Owner delete</h3><p class="hint"><code>POST /api/delete</code> with id + code removes bytes and row immediately.</p></div>
+<!-- AGENT-ERA SECTION -->
+<section class="section" id="agent">
+  <p class="kicker">Agent era</p>
+  <h2>Your agent needs a URL, not a laptop.</h2>
+  <p class="sub">TunnelShare speaks machine first: upload returns JSON your agent can parse, the share payload is a link plus a 6-digit code, and every share dies on its own.</p>
+  <div class="agent-points">
+    <div class="card"><h3>Structured output</h3><p class="hint">Upload returns JSON with <code>id</code>, <code>code</code>, <code>url</code>. Agents parse it, verify bytes with curl, and report back.</p></div>
+    <div class="card"><h3>Webhook-ready</h3><p class="hint">Plain <code>POST /api/upload</code> and <code>POST /api/download</code>. No SDK, no auth dance, no open ports.</p></div>
+    <div class="card"><h3>Ephemeral by design</h3><p class="hint">1 / 24 / 72 h expiry, 1&ndash;100 download caps, 5-strike lockout. Interrupted transfers auto-resume.</p></div>
   </div>
-</section>
-
-<!-- SELF HOST -->
-<section class="section" id="selfhost">
-  <p class="kicker">Self-host</p>
-  <h2>Run your own in 3 steps</h2>
-  <p class="sub">The real app is Flask + SQLite. Full source on GitHub.</p>
-  <div class="host-grid">
-    <div class="card"><div class="step-num orange">1</div><h3>Install</h3><pre class="codeblock"><span class="c"># clone + install</span>
-git clone https://github.com/Aakash-chouksey/tunnelshare
-cd tunnelshare
-pip install -r requirements.txt</pre></div>
-    <div class="card"><div class="step-num">2</div><h3>Run</h3><pre class="codeblock"><span class="c"># serves on :8080</span>
-python app.py</pre></div>
-    <div class="card"><div class="step-num">3</div><h3>Expose</h3><pre class="codeblock"><span class="c"># public URL via tunnel</span>
-cloudflared tunnel --url http://127.0.0.1:8080</pre></div>
-  </div>
-</section>
-
-<!-- 60-SECOND SETUP -->
-<section class="section" id="quickstart">
-  <p class="kicker">60-second setup</p>
-  <h2>From clone to share link in a minute</h2>
-  <p class="sub">Three commands on any machine with Python 3 and cloudflared. Roughly 60 seconds on a fresh clone.</p>
-  <div class="host-grid">
-    <div class="card"><div class="step-num orange">1</div><h3>Clone</h3><pre class="codeblock"><span class="c"># ~10 seconds</span>
-git clone https://github.com/Aakash-chouksey/tunnelshare
-cd tunnelshare</pre></div>
-    <div class="card"><div class="step-num">2</div><h3>Install &amp; run</h3><pre class="codeblock"><span class="c"># ~40 seconds — serves on :8080</span>
-pip install -r requirements.txt
-python app.py</pre><p class="hint" style="margin:12px 0 0">Prefer one-shot? Run <code>./setup.sh</code> — it creates the venv, installs deps, and prints the tunnel command.</p></div>
-    <div class="card"><div class="step-num">3</div><h3>Share</h3><pre class="codeblock"><span class="c"># ~10 seconds — public URL</span>
-cloudflared tunnel --url http://127.0.0.1:8080</pre><p class="hint" style="margin:12px 0 0">Open the printed <code>https://*.trycloudflare.com</code> URL on your phone or send it to a friend. Interrupted downloads auto-resume.</p></div>
-  </div>
-</section>
-
-<!-- AGENT SETUP -->
-<section class="section" id="agent-setup">
-  <p class="kicker">Agent setup</p>
-  <h2>Paste this into any coding agent</h2>
-  <p class="sub">One prompt sets up the whole project: clone, install, run, verify, and open a tunnel. The full checklist lives in <code>AGENT_SETUP.md</code> in the repo.</p>
   <div class="card agent-card">
     <div class="agent-head">
       <h3>Copy-paste agent prompt</h3>
@@ -166,8 +101,7 @@ cloudflared tunnel --url http://127.0.0.1:8080</pre><p class="hint" style="margi
    git clone https://github.com/Aakash-chouksey/tunnelshare
    cd tunnelshare
 2. Install and run (Python 3.10+ required, cloudflared required for the tunnel step):
-   python3 -m venv .venv &amp;&amp; .venv/bin/pip install -r requirements.txt
-   .venv/bin/python app.py  (serves http://127.0.0.1:8080 — keep it running)
+   ./setup.sh --run  (serves http://127.0.0.1:8080 — keep it running)
 3. Verify with curl:
    - Upload: curl -s -F "file=@README.md" http://127.0.0.1:8080/api/upload
      (expect JSON with id, code, url)
@@ -177,19 +111,70 @@ cloudflared tunnel --url http://127.0.0.1:8080</pre><p class="hint" style="margi
 4. Open a public URL:
    cloudflared tunnel --url http://127.0.0.1:8080
 5. Report back: local URL, public tunnel URL, and the upload-plus-download verification result.</pre>
-    <p class="hint">Tip: <code>./setup.sh</code> does steps 1–2 for you, then prints the tunnel command for step 4.</p>
+    <p class="hint">Full checklist lives in <code>AGENT_SETUP.md</code> in the repo at <a href="https://github.com/Aakash-chouksey/tunnelshare">github.com/Aakash-chouksey/tunnelshare</a>.</p>
   </div>
 </section>
 
-<!-- FAQ -->
-<section class="section" id="faq">
-  <p class="kicker">FAQ</p>
-  <h2>Questions, answered</h2>
-  <div class="faq">
-    <details open><summary>Where are files stored? Is there R2 / D1?</summary><p>No. The app is static-landing + self-hosted Flask: SQLite rows and files on local disk. This landing page itself is static only — no R2, no D1.</p></details>
-    <details><summary>What happens when a share expires?</summary><p>Status flips to EXPIRED and the file bytes are deleted so content is unrecoverable, while the row is kept so the API can still report EXPIRED instead of 404.</p></details>
-    <details><summary>What if someone guesses the code?</summary><p>Each wrong guess increments an attempt counter. After 5 wrong codes the share is LOCKED. Send link and code on different channels.</p></details>
-    <details><summary>How do I deploy this landing page?</summary><p>Run <code>cd workers-site &amp;&amp; wrangler deploy</code> (lead deploys after review). See <code>workers-site/README.md</code> for the custom-domain steps.</p></details>
+<!-- INSTALL / RUN / SHARE STEPS + DEMO MOCK -->
+<section class="section" id="setup">
+  <p class="kicker">Setup</p>
+  <h2>Install, run, share</h2>
+  <p class="sub">From clone to public link. Sample share below the steps is live in your browser only.</p>
+  <div class="steps-grid">
+    <div class="card"><div class="step-num">01</div><h3>Install cloudflared</h3><pre class="codeblock"><span class="c"># macOS</span>
+brew install cloudflared</pre><p class="hint">Linux / Windows: grab the binary from the Cloudflare docs.</p></div>
+    <div class="card"><div class="step-num">02</div><h3>Run your app</h3><pre class="codeblock"><span class="c"># one command — venv, deps, serve :8080</span>
+./setup.sh --run</pre><p class="hint">Manual path: <code>pip install -r requirements.txt &amp;&amp; python app.py</code>.</p></div>
+    <div class="card"><div class="step-num">03</div><h3>Open the tunnel</h3><pre class="codeblock"><span class="c"># public encrypted URL</span>
+cloudflared tunnel --url http://127.0.0.1:8080</pre><p class="hint">You get something like <code>https://olive-dog-41.trycloudflare.com</code>.</p></div>
+    <div class="card"><div class="step-num">04</div><h3>Share the link</h3><pre class="codeblock"><span class="c"># share payload: link + 6-digit code</span>
+https://olive-dog-41.trycloudflare.com/s/a1b2c3d4
+code: 482910 (shown once)</pre><p class="hint">Receiver enters the code to unlock the download. Interrupted transfers auto-resume.</p></div>
+  </div>
+
+  <div id="demo">
+    <p class="kicker" style="margin-top:36px">Live demo (mock, no backend)</p>
+    <h3 class="demo-title">It works like this</h3>
+    <p class="sub">Interactive mock of the real send / share interface. Click upload, watch the progress bar, copy the fake link and code, then verify on the right. Nothing leaves your browser.</p>
+    <div class="demo-grid">
+      <div class="card" id="demo-upload-card">
+        <h3>1 &middot; Send a file</h3>
+        <p class="hint">Mirrors <code>POST /api/upload</code> — file, expiry, max downloads.</p>
+        <div class="file-row">
+          <span class="file-icon" aria-hidden="true"></span>
+          <div class="file-meta"><b>demo_report.pdf</b><span>2.4 MB &middot; expires 24 h &middot; 5 downloads</span></div>
+        </div>
+        <div class="progress" aria-label="Upload progress"><div id="demo-progress-bar"></div></div>
+        <p style="margin-top:14px"><button class="btn" id="demo-upload-btn" type="button">Upload &amp; get link</button></p>
+        <div class="share-out" id="demo-share-out">
+          <div>Link: <a id="demo-share-link" href="https://tunnelshare.example/s/a1b2c3d4">https://tunnelshare.example/s/a1b2c3d4</a></div>
+          <div>Code (copy it now):<br><span class="code-big" id="demo-share-code">482910</span></div>
+        </div>
+      </div>
+      <div class="card" id="demo-verify-card">
+        <h3>2 &middot; Verify to download</h3>
+        <p class="hint">Mirrors <code>GET /s/:id</code> + <code>POST /api/download</code>. Try code <code>482910</code>.</p>
+        <p class="hint">Share <b>a1b2c3d4</b> &middot; demo_report.pdf &middot; 4 downloads left &middot; ACTIVE</p>
+        <label for="demo-code-input" style="font-weight:700;font-size:.9rem">6-digit code</label>
+        <input class="code-input" id="demo-code-input" inputmode="numeric" maxlength="6" placeholder="••••••" autocomplete="off">
+        <p><button class="btn" id="demo-verify-btn" type="button">Download</button></p>
+        <p class="verify-msg" id="demo-verify-msg" role="status"></p>
+      </div>
+    </div>
+    <p class="demo-note">Demo interactivity only — no network calls. The real app gates downloads with a salted SHA-256 code hash and 5-strike lockout, with auto-resume downloads for interrupted transfers.</p>
+  </div>
+</section>
+
+<!-- CLOSE -->
+<section class="close">
+  <div class="close-inner">
+    <p class="kicker">No signup. No DNS. No open ports.</p>
+    <h2>Nothing to sign up for. Go.</h2>
+    <p class="sub">Clone it, run one command, send the link. Read the docs in the repo when you get stuck.</p>
+    <div class="hero-cta">
+      <a class="btn" href="https://github.com/Aakash-chouksey/tunnelshare">Get TunnelShare on GitHub</a>
+      <a class="btn ghost" href="https://github.com/Aakash-chouksey/tunnelshare#readme">Read the docs</a>
+    </div>
   </div>
 </section>
 

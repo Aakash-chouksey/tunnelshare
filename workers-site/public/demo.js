@@ -14,16 +14,18 @@
     var link = $("demo-share-link");
     var code = $("demo-share-code");
     if (!btn || !bar) return;
-    link.textContent = DEMO_LINK;
-    link.setAttribute("href", DEMO_LINK);
-    code.textContent = DEMO_CODE;
+    if (link) {
+      link.textContent = DEMO_LINK;
+      link.setAttribute("href", DEMO_LINK);
+    }
+    if (code) code.textContent = DEMO_CODE;
 
     var timer = null;
     btn.addEventListener("click", function () {
       if (timer) return;
       btn.disabled = true;
       btn.textContent = "Uploading…";
-      out.style.display = "none";
+      if (out) out.style.display = "none";
       var pct = 0;
       bar.style.width = "0%";
       timer = setInterval(function () {
@@ -34,7 +36,7 @@
           timer = null;
           btn.disabled = false;
           btn.textContent = "Upload another file";
-          out.style.display = "block";
+          if (out) out.style.display = "block";
         }
         bar.style.width = pct.toFixed(0) + "%";
       }, 120);
@@ -48,7 +50,8 @@
     if (!input || !btn) return;
     btn.addEventListener("click", function () {
       var val = input.value.replace(/\s+/g, "");
-      msg.classList.remove("ok", "err");
+      if (msg) msg.classList.remove("ok", "err");
+      if (!msg) return;
       if (val === DEMO_CODE) {
         msg.textContent = "Code accepted — demo_report.pdf would download now (auto-resume downloads supported).";
         msg.classList.add("ok");
@@ -60,6 +63,14 @@
         msg.classList.add("err");
       }
     });
+  }
+
+  function copyText(text, done) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+    } else {
+      done(false);
+    }
   }
 
   function initAgentCopy() {
@@ -76,27 +87,32 @@
           btn.classList.remove("copy-ok");
         }, 2000);
       }
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
-      } else {
-        var range = document.createRange();
-        range.selectNodeContents(block);
-        var sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(range);
-        try {
-          done(document.execCommand("copy"));
-        } catch (e) {
-          done(false);
-        }
-        sel.removeAllRanges();
-      }
+      copyText(text, done);
     });
   }
 
+  function initHeroCopy() {
+    var btn = $("hero-copy-btn");
+    var cmd = $("hero-cmd");
+    if (!btn || !cmd) return;
+    btn.addEventListener("click", function () {
+      copyText(cmd.textContent.trim(), function (ok) {
+        btn.textContent = ok ? "Copied!" : "Copy failed";
+        setTimeout(function () { btn.textContent = "Copy"; }, 2000);
+      });
+    });
+  }
+
+  function init() {
+    initUpload();
+    initVerify();
+    initAgentCopy();
+    initHeroCopy();
+  }
+
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", function () { initUpload(); initVerify(); initAgentCopy(); });
+    document.addEventListener("DOMContentLoaded", init);
   } else {
-    initUpload(); initVerify(); initAgentCopy();
+    init();
   }
 })();
