@@ -1,4 +1,4 @@
-name = "tunnelshare-landing"
+name = "tunnelshare"
 main = "src/worker.js"
 compatibility_date = "2026-01-01"
 workers_dev = true

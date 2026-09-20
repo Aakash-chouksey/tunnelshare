@@ -17,6 +17,8 @@
       <a class="hide-m" href="#how">How it works</a>
       <a class="hide-m" href="#features">Features</a>
       <a class="hide-m" href="#selfhost">Self-host</a>
+      <a class="hide-m" href="#quickstart">60-second setup</a>
+      <a class="hide-m" href="#agent-setup">Agent setup</a>
       <a class="hide-m" href="#faq">FAQ</a>
       <a class="btn small" href="https://github.com/Aakash-chouksey/tunnelshare">GitHub</a>
     </nav>
@@ -84,7 +86,7 @@
       <p class="verify-msg" id="demo-verify-msg" role="status"></p>
     </div>
   </div>
-  <p class="demo-note">Demo interactivity only — no network calls. The real app gates downloads with a salted SHA-256 code hash and 5-strike lockout.</p>
+  <p class="demo-note">Demo interactivity only — no network calls. The real app gates downloads with a salted SHA-256 code hash and 5-strike lockout, with auto-resume downloads for interrupted transfers.</p>
 </section>
 
 <!-- HOW IT WORKS -->
@@ -128,6 +130,54 @@ pip install -r requirements.txt</pre></div>
 python app.py</pre></div>
     <div class="card"><div class="step-num">3</div><h3>Expose</h3><pre class="codeblock"><span class="c"># public URL via tunnel</span>
 cloudflared tunnel --url http://127.0.0.1:8080</pre></div>
+  </div>
+</section>
+
+<!-- 60-SECOND SETUP -->
+<section class="section" id="quickstart">
+  <p class="kicker">60-second setup</p>
+  <h2>From clone to share link in a minute</h2>
+  <p class="sub">Three commands on any machine with Python 3 and cloudflared. Roughly 60 seconds on a fresh clone.</p>
+  <div class="host-grid">
+    <div class="card"><div class="step-num orange">1</div><h3>Clone</h3><pre class="codeblock"><span class="c"># ~10 seconds</span>
+git clone https://github.com/Aakash-chouksey/tunnelshare
+cd tunnelshare</pre></div>
+    <div class="card"><div class="step-num">2</div><h3>Install &amp; run</h3><pre class="codeblock"><span class="c"># ~40 seconds — serves on :8080</span>
+pip install -r requirements.txt
+python app.py</pre><p class="hint" style="margin:12px 0 0">Prefer one-shot? Run <code>./setup.sh</code> — it creates the venv, installs deps, and prints the tunnel command.</p></div>
+    <div class="card"><div class="step-num">3</div><h3>Share</h3><pre class="codeblock"><span class="c"># ~10 seconds — public URL</span>
+cloudflared tunnel --url http://127.0.0.1:8080</pre><p class="hint" style="margin:12px 0 0">Open the printed <code>https://*.trycloudflare.com</code> URL on your phone or send it to a friend. Interrupted downloads auto-resume.</p></div>
+  </div>
+</section>
+
+<!-- AGENT SETUP -->
+<section class="section" id="agent-setup">
+  <p class="kicker">Agent setup</p>
+  <h2>Paste this into any coding agent</h2>
+  <p class="sub">One prompt sets up the whole project: clone, install, run, verify, and open a tunnel. The full checklist lives in <code>AGENT_SETUP.md</code> in the repo.</p>
+  <div class="card agent-card">
+    <div class="agent-head">
+      <h3>Copy-paste agent prompt</h3>
+      <button class="btn small" id="agent-copy-btn" type="button">Copy prompt</button>
+    </div>
+<pre class="codeblock agent-prompt" id="agent-prompt">Set up TunnelShare from scratch and prove it works.
+
+1. Clone the repo and enter it:
+   git clone https://github.com/Aakash-chouksey/tunnelshare
+   cd tunnelshare
+2. Install and run (Python 3.10+ required, cloudflared required for the tunnel step):
+   python3 -m venv .venv &amp;&amp; .venv/bin/pip install -r requirements.txt
+   .venv/bin/python app.py  (serves http://127.0.0.1:8080 — keep it running)
+3. Verify with curl:
+   - Upload: curl -s -F "file=@README.md" http://127.0.0.1:8080/api/upload
+     (expect JSON with id, code, url)
+   - Download: curl -s -X POST -H 'Content-Type: application/json'
+     -d '{"id":"&lt;id&gt;","code":"&lt;code&gt;"}' http://127.0.0.1:8080/api/download -o /tmp/ts-verify
+     and confirm the bytes match the uploaded file.
+4. Open a public URL:
+   cloudflared tunnel --url http://127.0.0.1:8080
+5. Report back: local URL, public tunnel URL, and the upload-plus-download verification result.</pre>
+    <p class="hint">Tip: <code>./setup.sh</code> does steps 1–2 for you, then prints the tunnel command for step 4.</p>
   </div>
 </section>
 

@@ -176,6 +176,13 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospac
 pre.codeblock { background: var(--navy); color: #e8ecf4; border-radius: var(--radius); padding: 14px; overflow-x: auto; font-size: .85rem; line-height: 1.55; margin: 12px 0 0; }
 pre.codeblock .c { color: #8b94a9; }
 
+/* agent setup */
+.agent-card { border-top: 3px solid var(--orange); }
+.agent-head { display: flex; align-items: center; gap: 12px; justify-content: space-between; flex-wrap: wrap; }
+.agent-head h3 { margin: 0; }
+pre.agent-prompt { white-space: pre-wrap; word-break: break-word; }
+.copy-ok { outline: 2px solid var(--orange); outline-offset: 2px; }
+
 /* faq */
 .faq { display: grid; gap: 12px; }
 .faq details { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px; }

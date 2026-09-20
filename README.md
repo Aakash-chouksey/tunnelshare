@@ -1,6 +1,6 @@
 # TunnelShare MVP
 
-Live landing page: https://tunnelshare-landing.billuu-probe.workers.dev
+Live landing page: https://tunnelshare.billuu-probe.workers.dev
 
 Ephemeral, code-gated file sharing designed to sit behind a Cloudflare quick tunnel.
 Upload a file &rarr; get a link (`/s/<id>`) plus a 6-digit code shown once &rarr;
@@ -19,10 +19,22 @@ cloudflared tunnel --url http://localhost:8080
 Or one-shot:
 
 ```bash
+./setup.sh
 ./share.sh
 ```
 
+Hand your coding agent `AGENT_SETUP.md`. It holds a copy-paste prompt
+that installs, runs, verifies, and tunnels the project with no guidance.
+
 Open the printed `https://*.trycloudflare.com` URL on your phone / send to a friend.
+
+## Resumable downloads
+
+`GET /api/download?id=<id>&code=<code>` serves `206 Partial Content`
+for `Range` headers, so a dropped connection resumes from the exact
+byte it stopped at with up to 5 backoff retries plus Pause and Resume.
+Whole-file fetches burn one download from the budget. Resume chunks
+do not.
 
 ## API
 
@@ -31,7 +43,8 @@ Open the printed `https://*.trycloudflare.com` URL on your phone / send to a fri
 | `GET /` | upload UI | |
 | `POST /api/upload` | multipart `file` + `expiry_hours` (1/24/72, default 24) + `max_downloads` (default 5) | returns `{id, code, url}` — code shown once |
 | `GET /s/<id>` | verify/download page | |
-| `POST /api/download` | JSON `{id, code}` | file bytes or `403` JSON |
+| `POST /api/download` | JSON `{id, code}` | file bytes or `403` JSON, kept for compat |
+| `GET /api/download?id=<id>&code=<code>` | resumable bytes, honors `Range`, or `403` JSON |
 | `GET /api/info/<id>` | `{filename, size, expires_at, downloads_left, status}` — never leaks the code | |
 | `POST /api/delete` | JSON `{id, code}` | owner deletion |
 

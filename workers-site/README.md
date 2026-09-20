@@ -1,6 +1,12 @@
 # TunnelShare landing (workers-site)
 
-Live: https://tunnelshare-landing.billuu-probe.workers.dev
+Live: https://tunnelshare.billuu-probe.workers.dev
+
+The worker is named `tunnelshare`, so the URL is
+`tunnelshare.billuu-probe.workers.dev`. Cloudflare fixes the
+`<worker>.<account>.workers.dev` shape, so a bare
+`tunnelshare.workers.dev` is not possible on workers.dev. A custom
+domain is the follow-up if you want shorter.
 
 Static-only landing page for TunnelShare, deployable with the wrangler CLI.
 No R2, no D1, no backend — one Worker serves `./public` with SPA fallback.
@@ -24,7 +30,7 @@ wrangler deploy --dry-run
 
 ## Files
 
-- `wrangler.toml` — `tunnelshare-landing`, `compatibility_date 2026-01-01`,
+- `wrangler.toml` — `tunnelshare`, `compatibility_date 2026-01-01`,
   `workers_dev true`, assets `./public` (SPA fallback).
 - `src/worker.js` — serves static assets, falls back to `index.html`,
   sets `Cache-Control` (immutable for css/js/fonts/images, revalidate for html).
@@ -36,7 +42,7 @@ wrangler deploy --dry-run
 ## Custom domain (later)
 
 1. `wrangler deploy` first so the worker exists.
-2. Cloudflare dashboard → Workers & Pages → `tunnelshare-landing` →
+2. Cloudflare dashboard → Workers & Pages → `tunnelshare` →
    Settings → Domains & Routes → Add Custom Domain.
 3. Or via CLI: `wrangler domains add <yourdomain.com>` (route/zone
    must already be on Cloudflare).

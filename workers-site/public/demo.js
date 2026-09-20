@@ -50,7 +50,7 @@
       var val = input.value.replace(/\s+/g, "");
       msg.classList.remove("ok", "err");
       if (val === DEMO_CODE) {
-        msg.textContent = "Code accepted — demo_report.pdf would download now.";
+        msg.textContent = "Code accepted — demo_report.pdf would download now (auto-resume downloads supported).";
         msg.classList.add("ok");
       } else if (val.length !== 6) {
         msg.textContent = "Enter the 6-digit demo code shown on the left: 482910.";
@@ -62,9 +62,41 @@
     });
   }
 
+  function initAgentCopy() {
+    var btn = $("agent-copy-btn");
+    var block = $("agent-prompt");
+    if (!btn || !block) return;
+    btn.addEventListener("click", function () {
+      var text = block.textContent;
+      function done(ok) {
+        btn.textContent = ok ? "Copied!" : "Copy failed — select manually";
+        btn.classList.add("copy-ok");
+        setTimeout(function () {
+          btn.textContent = "Copy prompt";
+          btn.classList.remove("copy-ok");
+        }, 2000);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+      } else {
+        var range = document.createRange();
+        range.selectNodeContents(block);
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        try {
+          done(document.execCommand("copy"));
+        } catch (e) {
+          done(false);
+        }
+        sel.removeAllRanges();
+      }
+    });
+  }
+
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", function () { initUpload(); initVerify(); });
+    document.addEventListener("DOMContentLoaded", function () { initUpload(); initVerify(); initAgentCopy(); });
   } else {
-    initUpload(); initVerify();
+    initUpload(); initVerify(); initAgentCopy();
   }
 })();
