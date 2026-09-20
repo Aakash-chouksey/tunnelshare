@@ -1,27 +1,37 @@
 <!doctype html>
 <html lang="en">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TunnelShare — send a file</title>
+<title>TunnelShare — send &amp; receive</title>
+<link rel="icon" href="data:,">
 <style>
 :root{color-scheme:light dark;--accent:#F6821F}
 *{box-sizing:border-box}
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:24px;line-height:1.5;max-width:640px;margin-inline:auto}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:24px;line-height:1.5;max-width:1020px;margin-inline:auto}
 h1{font-size:1.5rem;margin:0 0 4px}
-h2{font-size:1.1rem;margin:24px 0 8px}
 p.sub{color:gray;margin:0 0 20px}
-form.card,div.card{border:1px solid #ccc;border-radius:12px;padding:16px}
+.panes{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+@media(max-width:800px){.panes{grid-template-columns:1fr}}
+section.card,div.card,form.card{border:1px solid #ccc;border-radius:12px;padding:16px}
+.pane-title{font-size:1.1rem;margin:0 0 8px}
 label{display:block;margin:12px 0 4px;font-weight:600}
-input[type=file],select,input[type=number]{width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;font-size:1rem}
+input[type=file],select,input[type=number],input[type=text]{width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;font-size:1rem}
+input.codebox{font-size:1.6rem;letter-spacing:.25em;text-align:center;font-family:ui-monospace,Menlo,Consolas,monospace;padding:12px}
 button{width:100%;margin-top:16px;padding:12px;border:0;border-radius:8px;font-size:1.05rem;cursor:pointer;background:#1a73e8;color:#fff}
 button:disabled{opacity:.6}
-#result{word-break:break-all;margin-top:16px;display:none}
-code.code{font-size:1.6rem;letter-spacing:.2em;background:#f1f3f4;color:#111;padding:8px 16px;border-radius:8px;display:inline-block}
+button.big{font-size:1.25rem;padding:16px;font-weight:800}
+button#recv-pause,button.ghost{background:#555}
+button.copybtn{width:auto;margin-top:8px;padding:8px 16px;font-size:.95rem;background:#333}
+#result{word-break:break-all;margin-top:16px;display:none;border:1px dashed #ccc;border-radius:8px;padding:12px}
+code.code{font-size:2rem;letter-spacing:.25em;background:#f1f3f4;color:#111;padding:8px 16px;border-radius:8px;display:inline-block;font-family:ui-monospace,Menlo,Consolas,monospace}
+.coderow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center}
 .row{display:flex;gap:12px}.row>div{flex:1}
 .hint{font-size:.85rem;color:gray}
 .progress{height:12px;background:#eee;border-radius:6px;overflow:hidden;margin-top:12px;display:none}
 .progress>div{height:100%;width:0%;background:var(--accent);transition:width .15s}
-#ulabel{font-size:.85rem;color:gray;margin-top:4px;display:none}
+.ulpct,.dlpct{font-size:.85rem;color:gray;margin-top:4px;display:none}
+#recv-msg{margin-top:12px;font-weight:600;min-height:1.5em}
 table.shares{width:100%;border-collapse:collapse;font-size:.88rem}
 table.shares th,table.shares td{text-align:left;padding:6px 8px;border-bottom:1px solid #ddd;vertical-align:top}
 table.shares td.fname{word-break:break-all}
@@ -33,70 +43,123 @@ table.shares td.fname{word-break:break-all}
 tr.mine{background:#fff4e8}
 .badge{font-size:.7rem;font-weight:700;color:#7a3c00;border:1px solid var(--accent);border-radius:4px;padding:0 4px;margin-left:6px}
 .meta{font-size:.8rem;color:gray}
+.dash{margin-top:24px}
+a.openlink{white-space:nowrap}
 </style>
+</head>
+<body>
 <h1>TunnelShare</h1>
 <p class="sub">Ephemeral file drop. Upload &rarr; share link + 6-digit code &rarr; it self-destructs.</p>
-<form class="card" id="up">
-  <label for="file">File (max 50 MB)</label>
-  <input type="file" id="file" name="file" required>
-  <div class="row">
-    <div>
-      <label for="expiry_hours">Expires after</label>
-      <select id="expiry_hours" name="expiry_hours">
-        <option value="1">1 hour</option>
-        <option value="24" selected>24 hours</option>
-        <option value="72">72 hours</option>
-      </select>
+
+<div class="panes">
+  <!-- LEFT pane: Send -->
+  <section class="card" id="send-pane" aria-label="Send a file">
+    <h2 class="pane-title">Send</h2>
+    <form id="up">
+      <label for="file">File (max 50 MB)</label>
+      <input type="file" id="file" name="file" required>
+      <div class="row">
+        <div>
+          <label for="expiry_hours">Expires after</label>
+          <select id="expiry_hours" name="expiry_hours">
+            <option value="1">1 hour</option>
+            <option value="24" selected>24 hours</option>
+            <option value="72">72 hours</option>
+          </select>
+        </div>
+        <div>
+          <label for="max_downloads">Max downloads</label>
+          <input type="number" id="max_downloads" name="max_downloads" value="5" min="1" max="100">
+        </div>
+      </div>
+      <div class="progress" id="uprogress"><div id="ubar"></div></div>
+      <div class="ulpct" id="ulabel">0%</div>
+      <button type="submit" id="btn">Upload &amp; get link</button>
+      <p class="hint">The code is shown <b>once</b>. Send the link and the code on different channels.</p>
+    </form>
+    <div id="result" aria-live="polite">
+      <div>Link: <a id="rurl" href="#"></a></div>
+      <p style="text-align:center">Code (copy it now, it won't be shown again):</p>
+      <div class="coderow">
+        <code class="code" id="rcode"></code>
+        <button type="button" class="copybtn" id="copyBtn">Copy</button>
+      </div>
+      <p class="hint" id="copymsg" style="text-align:center"></p>
     </div>
-    <div>
-      <label for="max_downloads">Max downloads</label>
-      <input type="number" id="max_downloads" name="max_downloads" value="5" min="1" max="100">
-    </div>
-  </div>
-  <div class="progress" id="uprogress"><div id="ubar"></div></div>
-  <div id="ulabel">0%</div>
-  <button type="submit" id="btn">Upload &amp; get link</button>
-  <p class="hint">The code is shown <b>once</b>. Send the link and the code on different channels.</p>
-</form>
-<div class="card" id="result">
-  <div>Link: <a id="rurl" href="#"></a></div>
-  <p>Code (copy it now, it won't be shown again):<br><code class="code" id="rcode"></code></p>
+  </section>
+
+  <!-- RIGHT pane: Receive -->
+  <section class="card" id="receive-pane" aria-label="Receive a file">
+    <h2 class="pane-title">Receive</h2>
+    <!-- autofocus for code entry lives on verify.html code input; receive code here is large + centered -->
+    <label for="recv-id">Share link or ID</label>
+    <input type="text" id="recv-id" placeholder="paste link or ID, e.g. ab12cd34" autocomplete="off">
+    <label for="recv-code">6-digit code</label>
+    <input type="text" class="codebox" id="recv-code" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••••">
+    <button type="button" class="big" id="recv-btn">Download</button>
+    <button type="button" class="ghost" id="recv-pause" style="display:none">Pause</button>
+    <div class="progress" id="recv-progress"><div id="recv-bar"></div></div>
+    <div class="dlpct" id="recv-label">0%</div>
+    <p id="recv-msg" aria-live="polite"></p>
+    <p class="hint">Tip: open a share from the dashboard below, focus lands on the code box there.</p>
+  </section>
 </div>
 
-<h2>Shares dashboard</h2>
-<div class="card">
+<div class="card dash">
+  <h2 class="pane-title">Shares dashboard</h2>
   <p class="meta" id="dashmeta">Last 20 shares. Auto-refreshes every 10s.</p>
   <table class="shares">
-    <thead><tr><th>File</th><th>Size</th><th>Downloads</th><th>Status</th><th>Expiry</th></tr></thead>
-    <tbody id="shares-body"><tr><td colspan="5">Loading…</td></tr></tbody>
+    <thead><tr><th>File</th><th>Size</th><th>Downloads</th><th>Status</th><th>Expiry</th><th>Open</th></tr></thead>
+    <tbody id="shares-body"><tr><td colspan="6">Loading…</td></tr></tbody>
   </table>
 </div>
+
 <script type="module">
 // Single client-side transfer store.
 // Transfer = {share_id, direction: upload|download, loaded, total, state: active|done|error}
+// (download transfers additionally track next_byte/retries for resume; same store, no new stores.)
 const Transfers = (() => {
   const map = new Map();
-  const key = (t) => t.share_id + ':' + t.direction;
+  const key = (share_id, direction) => share_id + ':' + direction;
   return {
     start(share_id, direction, total) {
-      const t = { share_id, direction, loaded: 0, total: total || 0, state: 'active' };
-      map.set(share_id + ':' + direction, t);
+      const t = { share_id, direction, loaded: 0, total: total || 0, next_byte: 0, retries: 0, state: 'active' };
+      map.set(key(share_id, direction), t);
       return t;
     },
     progress(share_id, direction, loaded, total) {
-      const t = map.get(share_id + ':' + direction);
+      const t = map.get(key(share_id, direction));
       if (!t) return null;
       t.loaded = loaded;
+      t.next_byte = loaded;
       if (total) t.total = total;
       return t;
     },
+    noteRetry(share_id, direction) {
+      const t = map.get(key(share_id, direction));
+      if (!t) return null;
+      t.retries += 1;
+      return t;
+    },
+    pause(share_id, direction) {
+      const t = map.get(key(share_id, direction));
+      if (!t) return null;
+      if (t.state === 'active') t.state = 'paused';
+      return t;
+    },
+    resume(share_id, direction) {
+      const t = map.get(key(share_id, direction));
+      if (!t) return null;
+      if (t.state === 'paused') t.state = 'active';
+      return t;
+    },
     finish(share_id, direction, state) {
-      const t = map.get(share_id + ':' + direction);
+      const t = map.get(key(share_id, direction));
       if (!t) return null;
       t.state = state || 'done';
       return t;
     },
-    get(share_id, direction) { return map.get(share_id + ':' + direction) || null; },
+    get(share_id, direction) { return map.get(key(share_id, direction)) || null; },
     all() { return [...map.values()]; },
     _key: key,
   };
@@ -126,7 +189,8 @@ function rowHTML(s, mine) {
     + `<td>${fmtSize(s.size_bytes)}</td>`
     + `<td>${s.downloads_left} left / ${s.download_count} used</td>`
     + `<td><span class="pill ${escapeHTML(s.status)}">${escapeHTML(s.status)}</span></td>`
-    + `<td class="meta">${fmtExp(s.expires_at)}</td></tr>`;
+    + `<td class="meta">${fmtExp(s.expires_at)}</td>`
+    + `<td><a class="openlink" href="/s/${escapeHTML(s.id)}">Open</a></td></tr>`;
 }
 function escapeHTML(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -139,10 +203,10 @@ async function loadShares() {
     const list = await r.json();
     if (!r.ok) throw new Error(list.error || 'failed');
     const mine = getMine();
-    if (!list.length) { body.innerHTML = '<tr><td colspan="5">No shares yet.</td></tr>'; return; }
+    if (!list.length) { body.innerHTML = '<tr><td colspan="6">No shares yet.</td></tr>'; return; }
     body.innerHTML = list.map((s) => rowHTML(s, mine)).join('');
   } catch (e) {
-    body.innerHTML = '<tr><td colspan="5">Could not load shares.</td></tr>';
+    body.innerHTML = '<tr><td colspan="6">Could not load shares.</td></tr>';
   }
 }
 
@@ -185,6 +249,7 @@ document.getElementById('up').addEventListener('submit', (e) => {
       a.href = j.url; a.textContent = url;
       document.getElementById('rcode').textContent = j.code;
       document.getElementById('result').style.display = 'block';
+      document.getElementById('copymsg').textContent = '';
       rememberMine(j.id);
       loadShares();
       form.reset();
@@ -202,7 +267,229 @@ document.getElementById('up').addEventListener('submit', (e) => {
   xhr.send(fd);
 });
 
+// Copy button handler: copies the 6-digit code, falls back for older browsers.
+document.getElementById('copyBtn').addEventListener('click', async () => {
+  const code = document.getElementById('rcode').textContent.trim();
+  const note = document.getElementById('copymsg');
+  if (!code) return;
+  try {
+    await navigator.clipboard.writeText(code);
+    note.textContent = 'Copied!';
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = code; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); note.textContent = 'Copied!'; }
+    catch (err) { note.textContent = 'Copy failed — select the code manually.'; }
+    ta.remove();
+  }
+});
+
+// ---- Receive pane: resumable GET downloader (same behavior as /s/<id> page) ----
+function parseShareInput(v) {
+  v = (v || '').trim();
+  if (!v) return '';
+  const m = /\/s\/([A-Za-z0-9_-]+)/.exec(v);
+  if (m) return m[1];
+  return v.split(/[?#]/)[0].split('/').pop().trim();
+}
+function fmtBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1024 / 1024).toFixed(2) + ' MB';
+}
+const MAX_RETRIES = 5;
+const BACKOFF_MS = [1000, 2000, 4000, 8000, 16000];
+const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+let recvAbort = null;
+
+function recvRender(t, notice) {
+  const bar = document.getElementById('recv-bar');
+  const label = document.getElementById('recv-label');
+  const msg = document.getElementById('recv-msg');
+  if (!t) return;
+  const pct = t.total ? Math.min(100, Math.round(t.loaded / t.total * 100)) : 0;
+  bar.style.width = (t.total ? pct : 0) + '%';
+  let s = t.total
+    ? `${fmtBytes(t.loaded)} / ${fmtBytes(t.total)} (${pct}%)`
+    : `${fmtBytes(t.loaded)} received`;
+  if (notice) s += ' · ' + notice;
+  label.textContent = s;
+  if (notice) msg.textContent = notice;
+}
+async function recvWaitForResume(ID) {
+  for (;;) {
+    const t = Transfers.get(ID, 'download');
+    if (!t || t.state !== 'paused') return t;
+    await sleep(200);
+  }
+}
+document.getElementById('recv-pause').addEventListener('click', () => {
+  const ID = parseShareInput(document.getElementById('recv-id').value);
+  const t = Transfers.get(ID, 'download');
+  if (!t) return;
+  const pauseBtn = document.getElementById('recv-pause');
+  if (t.state === 'active') {
+    Transfers.pause(ID, 'download');
+    pauseBtn.textContent = 'Resume';
+    recvRender(t, `Paused at ${fmtBytes(t.loaded)} / ${fmtBytes(t.total)}. Press Resume to continue.`);
+    if (recvAbort) { try { recvAbort.abort(); } catch (e) {} }
+  } else if (t.state === 'paused') {
+    Transfers.resume(ID, 'download');
+    pauseBtn.textContent = 'Pause';
+    recvRender(t, `Resuming from byte ${t.next_byte}…`);
+  }
+});
+
+document.getElementById('recv-btn').addEventListener('click', async () => {
+  const ID = parseShareInput(document.getElementById('recv-id').value);
+  const code = document.getElementById('recv-code').value.trim();
+  const msg = document.getElementById('recv-msg');
+  const bar_wrap = document.getElementById('recv-progress');
+  const label = document.getElementById('recv-label');
+  const btn = document.getElementById('recv-btn');
+  const pauseBtn = document.getElementById('recv-pause');
+  if (!ID) { msg.textContent = 'Paste the share link or ID first.'; return; }
+  if (!code) { msg.textContent = 'Enter the 6-digit code first.'; return; }
+  msg.textContent = 'Starting…';
+  bar_wrap.style.display = 'block'; label.style.display = 'block';
+  document.getElementById('recv-bar').style.width = '0%';
+  btn.disabled = true;
+  pauseBtn.style.display = 'block';
+  pauseBtn.textContent = 'Pause';
+  pauseBtn.disabled = false;
+
+  let infoSize = 0;
+  try {
+    const ir = await fetch('/api/info/' + encodeURIComponent(ID));
+    const ij = await ir.json();
+    if (ir.ok) infoSize = ij.size_bytes || ij.size || 0;
+  } catch (e) {}
+
+  Transfers.start(ID, 'download', infoSize);
+  const chunks = [];
+  let received = 0;
+  let total = infoSize || 0;
+  let fileName = 'download';
+
+  for (;;) {
+    const t = Transfers.get(ID, 'download');
+    if (!t || t.state === 'done' || t.state === 'error') break;
+    if (t.state === 'paused') { await recvWaitForResume(ID); continue; }
+
+    const startOffset = t.next_byte;
+    const headers = {};
+    // First attempt (byte 0) goes out with no Range header so the server
+    // counts exactly one full-body (200) download. Resumes use
+    // Range: bytes=<next_byte>- and are served as 206 without touching
+    // the download budget.
+    if (startOffset > 0) headers['Range'] = 'bytes=' + startOffset + '-';
+    const url = '/api/download?id=' + encodeURIComponent(ID) + '&code=' + encodeURIComponent(code);
+    recvAbort = new AbortController();
+    try {
+      const r = await fetch(url, { headers, signal: recvAbort.signal });
+      if (r.status === 403 || r.status === 404 || r.status === 410 || r.status === 416) {
+        let j = {}; try { j = await r.json(); } catch (e) {}
+        msg.textContent = 'Error: ' + (j.error || r.status);
+        Transfers.finish(ID, 'download', 'error');
+        break;
+      }
+      if (!r.ok && r.status !== 206) {
+        throw new Error('HTTP ' + r.status);
+      }
+      const cr = r.headers.get('Content-Range');
+      if (r.status === 206 && cr) {
+        const m = /\/(\d+)\s*$/.exec(cr);
+        if (m) total = parseInt(m[1], 10) || total;
+      } else {
+        const cl = parseInt(r.headers.get('Content-Length') || '0', 10);
+        if (cl) {
+          total = (r.status === 206 && startOffset > 0) ? startOffset + cl : cl;
+        }
+      }
+      if (!total) total = infoSize || 0;
+      if (r.status === 200 && startOffset > 0) {
+        chunks.length = 0;
+        received = 0;
+        Transfers.progress(ID, 'download', 0, total);
+      } else {
+        Transfers.progress(ID, 'download', received, total);
+      }
+      const cd = r.headers.get('Content-Disposition') || '';
+      const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/.exec(cd);
+      if (m) { try { fileName = decodeURIComponent(m[1].replace(/[";]$/, '')); } catch (e) { fileName = m[1]; } }
+      recvRender(Transfers.get(ID, 'download'), startOffset > 0 ? `Resumed from byte ${startOffset}.` : '');
+
+      if (!r.body) throw new Error('empty body');
+      const reader = r.body.getReader();
+      try {
+        for (;;) {
+          const cur = Transfers.get(ID, 'download');
+          if (cur && cur.state === 'paused') {
+            try { await reader.cancel(); } catch (e) {}
+            break;
+          }
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          received += value.length;
+          Transfers.progress(ID, 'download', received, total);
+          recvRender(Transfers.get(ID, 'download'), '');
+        }
+      } finally {
+        try { reader.releaseLock(); } catch (e) {}
+      }
+      const after = Transfers.get(ID, 'download');
+      if (after && after.state === 'paused') { await recvWaitForResume(ID); continue; }
+      if (total && received < total) {
+        throw new Error(`truncated: got ${received} of ${total}`);
+      }
+      if (!total) total = received;
+      Transfers.progress(ID, 'download', received, total);
+      Transfers.finish(ID, 'download', 'done');
+      recvRender(Transfers.get(ID, 'download'), '');
+      document.getElementById('recv-bar').style.width = '100%';
+      const blob = new Blob(chunks);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = fileName; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      msg.textContent = 'Download complete.';
+      break;
+    } catch (e) {
+      const cur = Transfers.get(ID, 'download');
+      if (!cur || cur.state === 'done' || cur.state === 'error') break;
+      if (cur.state === 'paused') { await recvWaitForResume(ID); continue; }
+      if (e && e.name === 'AbortError' && cur.state === 'paused') { await recvWaitForResume(ID); continue; }
+      Transfers.noteRetry(ID, 'download');
+      const now = Transfers.get(ID, 'download');
+      if (now.retries > MAX_RETRIES) {
+        msg.textContent = 'Error: download failed after ' + MAX_RETRIES + ' retries (' + (e.message || e) + ')';
+        Transfers.finish(ID, 'download', 'error');
+        break;
+      }
+      const wait = BACKOFF_MS[now.retries - 1] || 16000;
+      Transfers.progress(ID, 'download', received, total);
+      recvRender(now, `Retry ${now.retries}/${MAX_RETRIES} in ${wait / 1000}s… (${fmtBytes(received)} / ${fmtBytes(total)}) — ${e.message || e}`);
+      let slept = 0;
+      while (slept < wait) {
+        const c2 = Transfers.get(ID, 'download');
+        if (c2 && c2.state === 'paused') { await recvWaitForResume(ID); break; }
+        const step = Math.min(200, wait - slept);
+        await sleep(step);
+        slept += step;
+      }
+      continue;
+    } finally {
+      recvAbort = null;
+    }
+  }
+  btn.disabled = false;
+  pauseBtn.style.display = 'none';
+  loadShares();
+});
+
 loadShares();
 setInterval(loadShares, 10000);
 export { Transfers };
 </script>
+</body>
+</html>
