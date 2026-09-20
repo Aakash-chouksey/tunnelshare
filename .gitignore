@@ -1,0 +1,8 @@
+*.db
+*.db-journal
+uploads/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env

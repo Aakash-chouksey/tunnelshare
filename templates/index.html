@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TunnelShare — send a file</title>
+<style>
+:root{color-scheme:light dark}
+*{box-sizing:border-box}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:24px;line-height:1.5;max-width:560px;margin-inline:auto}
+h1{font-size:1.5rem;margin:0 0 4px}
+p.sub{color:gray;margin:0 0 20px}
+form.card,div.card{border:1px solid #ccc;border-radius:12px;padding:16px}
+label{display:block;margin:12px 0 4px;font-weight:600}
+input[type=file],select,input[type=number]{width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;font-size:1rem}
+button{width:100%;margin-top:16px;padding:12px;border:0;border-radius:8px;font-size:1.05rem;cursor:pointer;background:#1a73e8;color:#fff}
+button:disabled{opacity:.6}
+#result{word-break:break-all;margin-top:16px;display:none}
+code.code{font-size:1.6rem;letter-spacing:.2em;background:#f1f3f4;color:#111;padding:8px 16px;border-radius:8px;display:inline-block}
+.row{display:flex;gap:12px}.row>div{flex:1}
+.hint{font-size:.85rem;color:gray}
+</style>
+<h1>TunnelShare</h1>
+<p class="sub">Ephemeral file drop. Upload &rarr; share link + 6-digit code &rarr; it self-destructs.</p>
+<form class="card" id="up">
+  <label for="file">File (max 50 MB)</label>
+  <input type="file" id="file" name="file" required>
+  <div class="row">
+    <div>
+      <label for="expiry_hours">Expires after</label>
+      <select id="expiry_hours" name="expiry_hours">
+        <option value="1">1 hour</option>
+        <option value="24" selected>24 hours</option>
+        <option value="72">72 hours</option>
+      </select>
+    </div>
+    <div>
+      <label for="max_downloads">Max downloads</label>
+      <input type="number" id="max_downloads" name="max_downloads" value="5" min="1" max="100">
+    </div>
+  </div>
+  <button type="submit" id="btn">Upload &amp; get link</button>
+  <p class="hint">The code is shown <b>once</b>. Send the link and the code on different channels.</p>
+</form>
+<div class="card" id="result">
+  <div>Link: <a id="rurl" href="#"></a></div>
+  <p>Code (copy it now, it won't be shown again):<br><code class="code" id="rcode"></code></p>
+</div>
+<script>
+document.getElementById('up').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('btn');
+  btn.disabled = true; btn.textContent = 'Uploading…';
+  try {
+    const fd = new FormData(e.target);
+    const r = await fetch('/api/upload', {method: 'POST', body: fd});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'upload failed');
+    const url = location.origin + j.url;
+    const a = document.getElementById('rurl');
+    a.href = j.url; a.textContent = url;
+    document.getElementById('rcode').textContent = j.code;
+    document.getElementById('result').style.display = 'block';
+    e.target.reset();
+  } catch (err) { alert('Upload failed: ' + err.message); }
+  finally { btn.disabled = false; btn.textContent = 'Upload & get link'; }
+});
+</script>
