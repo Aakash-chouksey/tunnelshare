@@ -28,20 +28,35 @@ that installs, runs, verifies, and tunnels the project with no guidance.
 
 Open the printed `https://*.trycloudflare.com` URL on your phone / send to a friend.
 
-## Resumable downloads
+Owner console needs the token link or a localhost visit. Token rotates every restart.
+Share links (`/s/<id>`) need no token.
 
-`GET /api/download?id=<id>&code=<code>` serves `206 Partial Content`
-for `Range` headers, so a dropped connection resumes from the exact
-byte it stopped at with up to 5 backoff retries plus Pause and Resume.
-Whole-file fetches burn one download from the budget. Resume chunks
-do not.
+## Large files and resume
+
+Every request body stays under Cloudflare's 100 MB cap, so uploads are chunked
+(16 MB each). A dropped connection re-sends at most one chunk, and the client
+asks `/api/upload/status` for the chunks the server already holds, so a reload
+resumes instead of restarting. A chunk retry writes the same bytes at the same
+offset, so it is idempotent.
+
+Downloads stream and honor `Range`, so a dropped download resumes from the
+exact byte it stopped at with up to 5 backoff retries plus Pause and Resume.
+Whole-file fetches burn one download from the budget. Resume chunks do not.
+
+`TS_MAX_BYTES` sets the upload cap (default 10 GB). Disk, not the edge, is the
+real limit.
+
+Run the upload checks with `python3 check_upload.py`.
 
 ## API
 
 | Method | Route | Notes |
 |---|---|---|
 | `GET /` | upload UI | |
-| `POST /api/upload` | multipart `file` + `expiry_hours` (1/24/72, default 24) + `max_downloads` (default 5) | returns `{id, code, url}` — code shown once |
+| `POST /api/upload/init` | JSON `{filename, size}` | opens a `PENDING` share, preallocates the file, returns `{id, chunk_size, chunks}` |
+| `PUT /api/upload/chunk` | headers `X-Upload-Id`, `X-Chunk-Index`, raw body | writes one chunk at its offset, returns `{received, chunks}` |
+| `GET /api/upload/status?id=` | | `{status, received:[idx], chunks, chunk_size, size_bytes}` |
+| `POST /api/upload/complete` | JSON `{id, expiry_hours, max_downloads}` | seals the share, returns `{id, code, url}` — code shown once |
 | `GET /s/<id>` | verify/download page | |
 | `POST /api/download` | JSON `{id, code}` | file bytes or `403` JSON, kept for compat |
 | `GET /api/download?id=<id>&code=<code>` | resumable bytes, honors `Range`, or `403` JSON |
@@ -58,9 +73,11 @@ do not.
   in `uploads/` (outside any static route). No directory listing, no
   unauthenticated file access — bytes only leave via `/api/download` after a
   correct code.
-- 50 MB cap (`MAX_CONTENT_LENGTH` + streamed size check).
+- 10 GB default upload cap (`TS_MAX_BYTES`); every request body stays under
+  Cloudflare's 100 MB limit.
 - Expired shares are purged on every request (file bytes deleted, row kept as
   `EXPIRED` so clients get a clear status instead of a bare 404).
+- Abandoned uploads purge themselves after 6 hours (`UPLOAD_TTL_SECONDS`).
 - Binds `127.0.0.1` only — the only ingress is the Cloudflare tunnel.
 
 ## Limits (MVP)
@@ -69,9 +86,32 @@ do not.
 - No TLS locally (tunnel provides HTTPS).
 - No owner-auth beyond the code; anyone with link + code can download/delete.
 
+## Stable link
+
+A quick tunnel URL changes on every restart, so a link built from it dies.
+The stable link points at the Workers host instead. The worker holds the live
+tunnel URL in KV, and `/s/<id>` redirects to it. The link a sender hands out
+therefore survives a restart.
+
+One-time setup:
+
+```bash
+cd workers-site
+wrangler kv namespace create TUNNEL_KV     # paste the printed id into wrangler.toml
+wrangler secret put PUBLISH_TOKEN < ../.publish-token   # created by setup.sh
+wrangler deploy
+```
+
+After that, `./setup.sh --run` publishes the live tunnel URL on every start
+and prints the stable link. `TS_STABLE_HOST` and `TS_PUBLISH_ENDPOINT`
+override the defaults. Without the worker, the app falls back to the tunnel
+URL, and everything else still works.
+
+The worker has its own check: `node workers-site/test_worker.mjs`.
+
 ## Roadmap
 
 - Per-IP rate limiting + CAPTCHA on verify page.
-- Larger files via chunked upload; virus scanning hook.
+- Virus scanning hook.
 - Postgres option, multi-worker safe locking.
--Burn-after-reading mode (max_downloads=1 default option in UI).
+- Burn-after-reading mode (max_downloads=1 default option in UI).

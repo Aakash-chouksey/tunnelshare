@@ -19,6 +19,14 @@ APP_LOG="/tmp/tunnelshare.log"
 TUNNEL_LOG="/tmp/cloudflared_tunnel.log"
 URL_FILE="$SCRIPT_DIR/.tunnel-url"
 
+# Stable link. The quick tunnel URL changes on every restart, so the link a
+# sender hands out points at the Workers host instead. setup.sh publishes the
+# live tunnel URL there, and the worker redirects.
+STABLE_HOST="${TS_STABLE_HOST:-tunnelshare.billuu-probe.workers.dev}"
+PUBLISH_ENDPOINT="${TS_PUBLISH_ENDPOINT:-https://$STABLE_HOST/publish}"
+STABLE_URL_FILE="$SCRIPT_DIR/.stable-url"
+PUBLISH_TOKEN_FILE="$SCRIPT_DIR/.publish-token"
+
 usage() {
   cat <<'EOF'
 Usage: ./setup.sh [--run] [--help]
@@ -198,6 +206,34 @@ open_tunnel() {
   printf '%s' "$url"
 }
 
+ensure_publish_token() {
+  [ -f "$PUBLISH_TOKEN_FILE" ] && return 0
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 24 > "$PUBLISH_TOKEN_FILE"
+  else
+    .venv/bin/python -c 'import secrets;print(secrets.token_hex(24))' > "$PUBLISH_TOKEN_FILE"
+  fi
+  chmod 600 "$PUBLISH_TOKEN_FILE" 2>/dev/null || true
+  log "Created $PUBLISH_TOKEN_FILE"
+  log "Set the same value on the worker once, then stable links start working:"
+  log "  cd workers-site && wrangler secret put PUBLISH_TOKEN < ../.publish-token"
+}
+
+publish_live_url() {
+  local url="$1"
+  [ -f "$PUBLISH_TOKEN_FILE" ] || { log "No publish token, skipping the stable-link publish."; return 0; }
+  local token
+  token="$(cat "$PUBLISH_TOKEN_FILE" 2>/dev/null || true)"
+  [ -n "$token" ] || { log "Empty publish token, skipping the stable-link publish."; return 0; }
+  if curl -sf -m 20 -X POST "$PUBLISH_ENDPOINT" \
+      -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+      -d "{\"url\":\"$url\"}" >/dev/null 2>&1; then
+    log "Stable link published to $PUBLISH_ENDPOINT"
+  else
+    log "Warning: could not publish the stable link. The tunnel URL still works."
+  fi
+}
+
 ensure_python
 setup_venv
 
@@ -211,8 +247,26 @@ install_cloudflared
 start_app
 SHARED_URL="$(open_tunnel)"
 
+printf 'https://%s' "$STABLE_HOST" > "$STABLE_URL_FILE"
+ensure_publish_token
+publish_live_url "$SHARED_URL"
+
+OWNER_TOKEN_FILE="$SCRIPT_DIR/.owner-token"
+if [ -f "$OWNER_TOKEN_FILE" ]; then
+  OWNER_TOKEN="$(cat "$OWNER_TOKEN_FILE" 2>/dev/null || true)"
+  if [ -n "${OWNER_TOKEN:-}" ]; then
+    log "Owner console (private, local only): http://127.0.0.1:8080/?token=$OWNER_TOKEN"
+  else
+    log "Owner token file empty; check $APP_LOG for the Owner console line."
+  fi
+else
+  log "Owner token file not found; check $APP_LOG for the Owner console line."
+fi
+
 echo "$SHARED_URL"
 log ""
-log "TunnelShare is running. Share this URL with a friend: $SHARED_URL"
+log "TunnelShare is running."
+log "Stable link (survives a restart): https://$STABLE_HOST/s/<id>"
+log "Live tunnel URL right now: $SHARED_URL"
 log "Local app: http://127.0.0.1:8080  (logs: $APP_LOG, tunnel: $TUNNEL_LOG)"
 log "Stop with: pkill -x cloudflared; pkill -f '[a]pp.py'"

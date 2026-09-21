@@ -147,6 +147,7 @@ function fileKind(name) {
 }
 
 const ID = {{ share_id | tojson }};
+const SHARE_BASE = {{ share_base | tojson }} || location.origin;
 const MAX_RETRIES = 5;
 const BACKOFF_MS = [1000, 2000, 4000, 8000, 16000];
 let infoSize = 0;
@@ -374,13 +375,15 @@ btn.addEventListener('click', async () => {
   loadInfo();
 });
 
-// Copy button handler: copies the share link URL.
+// Copy button handler: copies the stable share link, not the tunnel URL in
+// the address bar, so a restarted tunnel does not break the copied link.
 document.getElementById('copyLinkBtn').addEventListener('click', async () => {
+  const link = SHARE_BASE + '/s/' + ID;
   try {
-    await navigator.clipboard.writeText(location.href);
+    await navigator.clipboard.writeText(link);
   } catch (e) {
     const ta = document.createElement('textarea');
-    ta.value = location.href; document.body.appendChild(ta); ta.select();
+    ta.value = link; document.body.appendChild(ta); ta.select();
     try { document.execCommand('copy'); } catch (err) {}
     ta.remove();
   }

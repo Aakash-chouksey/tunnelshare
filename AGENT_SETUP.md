@@ -17,13 +17,27 @@ downloads page. Only ask me if a step needs a password or a manual
 download.
 ```
 
-Then verify with curl (substitute id and code from the upload response):
+Then verify with curl. The upload is chunked, so the snippet does the four
+calls the browser does: init, one PUT per chunk, complete, download.
 
 ```bash
-curl -s -F "file=@README.md" -F "expiry_hours=24" -F "max_downloads=5" \
-  http://127.0.0.1:8080/api/upload
-curl -s "http://127.0.0.1:8080/api/download?id=<id>&code=<code>" \
-  -o /tmp/ts-verify
+SIZE=$(wc -c < README.md)
+INIT=$(curl -s -X POST -H 'Content-Type: application/json' \
+  -d "{\"filename\":\"README.md\",\"size\":$SIZE}" \
+  http://127.0.0.1:8080/api/upload/init)
+ID=$(printf '%s' "$INIT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+CS=$(printf '%s' "$INIT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["chunk_size"])')
+split -b "$CS" README.md /tmp/ts-part-
+i=0; for p in /tmp/ts-part-*; do
+  curl -s -X PUT -H "X-Upload-Id: $ID" -H "X-Chunk-Index: $i" \
+    --data-binary "@$p" http://127.0.0.1:8080/api/upload/chunk >/dev/null
+  i=$((i+1))
+done
+CODE=$(curl -s -X POST -H 'Content-Type: application/json' \
+  -d "{\"id\":\"$ID\",\"expiry_hours\":24,\"max_downloads\":5}" \
+  http://127.0.0.1:8080/api/upload/complete \
+  | python3 -c 'import sys,json;print(json.load(sys.stdin)["code"])')
+curl -s "http://127.0.0.1:8080/api/download?id=$ID&code=$CODE" -o /tmp/ts-verify
 diff README.md /tmp/ts-verify && echo UPLOAD_DOWNLOAD_VERIFIED
 ```
 
@@ -60,21 +74,37 @@ cd tunnelshare
 In another terminal while the app is running:
 
 ```bash
-# Upload — expect JSON: {"id": "...", "code": "...", "url": "/s/..."}
-curl -s -F "file=@README.md" -F "expiry_hours=24" -F "max_downloads=5" \
-  http://127.0.0.1:8080/api/upload
+# Upload, chunked. Step 1 opens the upload and preallocates the file.
+SIZE=$(wc -c < README.md)
+INIT=$(curl -s -X POST -H 'Content-Type: application/json' \
+  -d "{\"filename\":\"README.md\",\"size\":$SIZE}" \
+  http://127.0.0.1:8080/api/upload/init)
+ID=$(printf '%s' "$INIT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+CS=$(printf '%s' "$INIT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["chunk_size"])')
 
-# Download — substitute the id and code from the upload response
+# Step 2: one PUT per chunk. A retry re-sends at most one chunk.
+split -b "$CS" README.md /tmp/ts-part-
+i=0; for p in /tmp/ts-part-*; do
+  curl -s -X PUT -H "X-Upload-Id: $ID" -H "X-Chunk-Index: $i" \
+    --data-binary "@$p" http://127.0.0.1:8080/api/upload/chunk >/dev/null
+  i=$((i+1))
+done
+
+# Step 3: seal it. Expect {"id": "...", "code": "...", "url": "/s/..."}
 curl -s -X POST -H 'Content-Type: application/json' \
-  -d '{"id":"<id>","code":"<code>"}' \
-  http://127.0.0.1:8080/api/download -o /tmp/ts-verify
+  -d "{\"id\":\"$ID\",\"expiry_hours\":24,\"max_downloads\":5}" \
+  http://127.0.0.1:8080/api/upload/complete
 
-# Confirm the bytes match
+# Download, then confirm the bytes match
+curl -s "http://127.0.0.1:8080/api/download?id=$ID&code=$CODE" -o /tmp/ts-verify
 diff README.md /tmp/ts-verify && echo UPLOAD_DOWNLOAD_VERIFIED
 ```
 
 Optional: open `http://127.0.0.1:8080/s/<id>` in a browser to see the
 verify/download page for the share.
+
+Owner console needs the token link or a localhost visit. Token rotates every restart.
+Share links need no token.
 
 ## Tunnel step
 

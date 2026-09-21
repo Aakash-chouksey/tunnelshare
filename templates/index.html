@@ -311,7 +311,7 @@ a.openlink {
   <h2 class="pane-title">Upload a file</h2>
   <form id="up">
     <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-label="Drop a file here or click to choose one">
-      Drop a file here, or click to choose one.
+      Drop a file here, or click to choose one. Any size.
     </div>
     <input type="file" id="file" name="file" required hidden>
     <div class="chip" id="file-chip" hidden>
@@ -391,6 +391,10 @@ const Transfers = (() => {
     all() { return [...map.values()]; },
   };
 })();
+
+// Stable link when setup.sh published one, the live tunnel otherwise.
+const SHARE_BASE = {{ share_base | tojson }} || location.origin;
+const shareLink = (id) => SHARE_BASE + '/s/' + id;
 
 const MINE_KEY = 'tunnelshare_mine';
 function getMine() {
@@ -476,9 +480,98 @@ document.getElementById('file-clear').addEventListener('click', () => {
   fileChip.hidden = true;
 });
 
-document.getElementById('up').addEventListener('submit', (e) => {
+const CHUNK_PARALLEL = 3;
+const UPLOAD_KEY = 'tunnelshare_upload';
+
+function uploadKeyFor(file) {
+  return [file.name, file.size, file.lastModified].join(':');
+}
+function savedUpload(key) {
+  try {
+    const j = JSON.parse(localStorage.getItem(UPLOAD_KEY) || 'null');
+    return j && j.key === key ? j.id : null;
+  } catch (e) { return null; }
+}
+function saveUpload(key, id) {
+  try { localStorage.setItem(UPLOAD_KEY, JSON.stringify({ key, id })); } catch (e) {}
+}
+function clearUpload() {
+  try { localStorage.removeItem(UPLOAD_KEY); } catch (e) {}
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Chunked upload. One chunk per request keeps every body under Cloudflare's
+// 100 MB cap, and a retry re-sends at most one chunk. The server names the
+// chunks it holds, so a reload resumes instead of restarting.
+async function uploadFile(file, expiry_hours, max_downloads, onProgress) {
+  const key = uploadKeyFor(file);
+  let id = savedUpload(key);
+  if (id) {
+    const r = await fetch('/api/upload/status?id=' + encodeURIComponent(id));
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.status !== 'PENDING') id = null;
+  }
+  if (!id) {
+    const r = await fetch('/api/upload/init', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: file.name, size: file.size }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    id = j.id;
+    saveUpload(key, id);
+  }
+
+  const st = await (await fetch('/api/upload/status?id=' + encodeURIComponent(id))).json();
+  const chunk_size = st.chunk_size;
+  const chunks = st.chunks;
+  const have = new Set(st.received || []);
+  let done = have.size;
+  onProgress(done, chunks);
+
+  let next = 0;
+  async function worker() {
+    for (;;) {
+      const idx = next++;
+      if (idx >= chunks) return;
+      if (have.has(idx)) continue;
+      const start = idx * chunk_size;
+      const blob = file.slice(start, Math.min(file.size, start + chunk_size));
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const r = await fetch('/api/upload/chunk', {
+            method: 'PUT',
+            headers: { 'X-Upload-Id': id, 'X-Chunk-Index': String(idx) },
+            body: blob,
+          });
+          if (!r.ok) {
+            const j = await r.json().catch(() => ({}));
+            throw new Error(j.error || ('HTTP ' + r.status));
+          }
+          done += 1;
+          onProgress(done, chunks);
+          break;
+        } catch (err) {
+          if (attempt >= 5) throw err;
+          await sleep(1000 * 2 ** attempt);
+        }
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CHUNK_PARALLEL, chunks) }, worker));
+
+  const r = await fetch('/api/upload/complete', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, expiry_hours, max_downloads }),
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+  clearUpload();
+  return j;
+}
+
+document.getElementById('up').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const form = e.target;
   const file = fileInput.files[0];
   uploadError.textContent = '';
   if (!file) { uploadError.textContent = 'Choose a file first.'; return; }
@@ -491,46 +584,34 @@ document.getElementById('up').addEventListener('submit', (e) => {
   bar.style.width = '0%'; label.textContent = '0%';
 
   Transfers.start('pending', 'upload', file.size);
-  const fd = new FormData(form);
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', '/api/upload');
-  xhr.upload.addEventListener('progress', (ev) => {
-    if (ev.lengthComputable) {
-      Transfers.progress('pending', 'upload', ev.loaded, ev.total);
-      const pct = Math.round(ev.loaded / ev.total * 100);
-      bar.style.width = pct + '%'; label.textContent = pct + '%';
-    } else {
-      label.textContent = Math.round(ev.loaded / 1024) + ' KB sent';
-    }
-  });
-  xhr.addEventListener('load', () => {
-    let j = {};
-    try { j = JSON.parse(xhr.responseText); } catch (err) {}
-    if (xhr.status >= 200 && xhr.status < 300) {
-      Transfers.finish('pending', 'upload', 'done');
-      bar.style.width = '100%'; label.textContent = '100%';
-      const url = location.origin + j.url;
-      const a = document.getElementById('rurl');
-      a.href = j.url; a.textContent = url;
-      document.getElementById('rcode').textContent = j.code;
-      document.getElementById('result').hidden = false;
-      document.getElementById('copymsg').textContent = '';
-      rememberMine(j.id);
-      loadShares();
-      form.reset();
-      fileChip.hidden = true;
-    } else {
-      Transfers.finish('pending', 'upload', 'error');
-      uploadError.textContent = 'Upload failed: ' + (j.error || xhr.status);
-    }
-    btn.disabled = false; btn.textContent = 'Upload';
-  });
-  xhr.addEventListener('error', () => {
+  const show = (done, chunks) => {
+    const pct = chunks ? Math.round(done / chunks * 100) : 0;
+    Transfers.progress('pending', 'upload', done, chunks);
+    bar.style.width = pct + '%';
+    label.textContent = pct + '% (' + done + '/' + chunks + ' parts)';
+  };
+
+  try {
+    const j = await uploadFile(file,
+      Number(document.getElementById('expiry_hours').value),
+      Number(document.getElementById('max_downloads').value), show);
+    Transfers.finish('pending', 'upload', 'done');
+    bar.style.width = '100%'; label.textContent = '100%';
+    const a = document.getElementById('rurl');
+    a.href = shareLink(j.id); a.textContent = shareLink(j.id);
+    document.getElementById('rcode').textContent = j.code;
+    document.getElementById('result').hidden = false;
+    document.getElementById('copymsg').textContent = '';
+    rememberMine(j.id);
+    loadShares();
+    e.target.reset();
+    fileChip.hidden = true;
+  } catch (err) {
     Transfers.finish('pending', 'upload', 'error');
-    uploadError.textContent = 'Upload failed: network error. Try again.';
-    btn.disabled = false; btn.textContent = 'Upload';
-  });
-  xhr.send(fd);
+    uploadError.textContent = 'Upload failed: ' + (err.message || err) +
+      '. Press Upload again to resume where it stopped.';
+  }
+  btn.disabled = false; btn.textContent = 'Upload';
 });
 
 async function copyText(text, note) {
@@ -563,7 +644,7 @@ document.getElementById('shares-body').addEventListener('click', (e) => {
   const btn = e.target.closest('button.rowcopy');
   if (!btn) return;
   const note = document.getElementById('files-msg');
-  copyText(location.origin + '/s/' + btn.dataset.id, note);
+  copyText(shareLink(btn.dataset.id), note);
 });
 
 loadShares();

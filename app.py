@@ -23,16 +23,33 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "shares.db")
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 
-MAX_FILE_BYTES = 50 * 1024 * 1024  # 50 MB
+# OwnerGrant: server-secret token string held here; owner_granted() below is
+# the ONLY place grant logic lives.
+OWNER_TOKEN_PATH = os.path.join(BASE_DIR, ".owner-token")
+OWNER_TOKEN = ""
+
+# Runtime URLs written by setup.sh. The tunnel URL changes on every restart,
+# so the stable link is the one to hand out; the tunnel URL is the fallback.
+TUNNEL_URL_PATH = os.path.join(BASE_DIR, ".tunnel-url")
+STABLE_URL_PATH = os.path.join(BASE_DIR, ".stable-url")
+_URL_CACHE = {}
+
+# Chunked upload: every request body stays under Cloudflare's 100 MB cap,
+# and a dropped connection re-sends at most one chunk. A chunk retry writes
+# the same bytes at the same offset, so the operation is idempotent.
+CHUNK_SIZE = 16 * 1024 * 1024  # 16 MB
+MAX_FILE_BYTES = int(os.environ.get("TS_MAX_BYTES", 10 * 1024**3))  # disk, not the edge, is the real cap
+UPLOAD_TTL_SECONDS = 6 * 3600  # abandoned PENDING uploads reclaim their disk here
 EXPIRY_OPTIONS = (1, 24, 72)
 DEFAULT_EXPIRY_HOURS = 24
 DEFAULT_MAX_DOWNLOADS = 5
 MAX_ATTEMPTS = 5  # 5 failed codes -> LOCKED
 
-STATUSES = ("ACTIVE", "EXHAUSTED", "EXPIRED", "LOCKED")
+# PENDING is the upload phase of the same Share. One machine, one resolver.
+STATUSES = ("PENDING", "ACTIVE", "EXHAUSTED", "EXPIRED", "LOCKED")
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = MAX_FILE_BYTES
+app.config["MAX_CONTENT_LENGTH"] = CHUNK_SIZE + 1024 * 1024
 
 
 # ---------------------------------------------------------------- DB helpers
@@ -51,6 +68,7 @@ def close_db(exc=None):
 
 
 def init_db():
+    _init_owner_token()
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     db = sqlite3.connect(DB_PATH)
     db.execute(
@@ -70,8 +88,58 @@ def init_db():
             created_at INTEGER NOT NULL
         )"""
     )
+    # Which chunks of a PENDING upload have arrived. A row is a fact, not a
+    # counter, so a retried chunk cannot double-count.
+    db.execute(
+        """CREATE TABLE IF NOT EXISTS chunks (
+            share_id TEXT NOT NULL,
+            idx INTEGER NOT NULL,
+            PRIMARY KEY (share_id, idx)
+        )"""
+    )
     db.commit()
     db.close()
+
+
+def _init_owner_token():
+    """Generate server-secret owner token, persist with mode 0o600, print link."""
+    global OWNER_TOKEN
+    OWNER_TOKEN = secrets.token_hex(16)
+    fd = os.open(OWNER_TOKEN_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(OWNER_TOKEN)
+    try:
+        os.chmod(OWNER_TOKEN_PATH, 0o600)
+    except OSError:
+        pass
+    print(f"Owner console: http://127.0.0.1:8080/?token={OWNER_TOKEN}", flush=True)
+
+
+def owner_granted():
+    """ONLY place owner grant logic lives."""
+    token = OWNER_TOKEN or ""
+    if token and hmac.compare_digest(request.cookies.get("ts_owner", "") or "", token):
+        g._owner_set_cookie = False
+        return True
+    q = request.args.get("token", "") or ""
+    if q and token and hmac.compare_digest(q, token):
+        g._owner_set_cookie = True
+        return True
+    if request.remote_addr in ("127.0.0.1", "::1") and "CF-Connecting-IP" not in request.headers:
+        g._owner_set_cookie = True
+        return True
+    g._owner_set_cookie = False
+    return False
+
+
+@app.after_request
+def _set_owner_cookie(resp):
+    try:
+        if getattr(g, "_owner_set_cookie", False) and OWNER_TOKEN:
+            resp.set_cookie("ts_owner", OWNER_TOKEN, httponly=True, samesite="Lax", path="/")
+    except Exception:
+        pass
+    return resp
 
 
 def row_to_share(row):
@@ -93,6 +161,8 @@ def resolve_status(share, now=None):
         return "LOCKED"
     if now >= share["expires_at"]:
         return "EXPIRED"
+    if share["status"] == "PENDING":
+        return "PENDING"
     if share["download_count"] >= share["max_downloads"]:
         return "EXHAUSTED"
     return "ACTIVE"
@@ -119,7 +189,7 @@ def refresh_status(db, share, now=None):
 def purge_expired(db):
     """Run on each request: expire anything past its deadline."""
     now = int(time.time())
-    rows = db.execute("SELECT * FROM shares WHERE status = 'ACTIVE'").fetchall()
+    rows = db.execute("SELECT * FROM shares WHERE status IN ('ACTIVE', 'PENDING')").fetchall()
     for row in rows:
         share = row_to_share(row)
         if resolve_status(share, now) == "EXPIRED":
@@ -147,10 +217,53 @@ def hash_code(code, salt):
     return hashlib.sha256((salt + code).encode()).hexdigest()
 
 
+def read_url_file(path):
+    """Read a one-line runtime URL file, re-reading only when it changes."""
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return ""
+    cached = _URL_CACHE.get(path)
+    if cached and cached[0] == mtime:
+        return cached[1]
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            value = f.read().strip().rstrip("/")
+    except OSError:
+        value = ""
+    _URL_CACHE[path] = (mtime, value)
+    return value
+
+
+def public_base():
+    """Stable link first, live tunnel second, empty when neither is known."""
+    return read_url_file(STABLE_URL_PATH) or read_url_file(TUNNEL_URL_PATH)
+
+
+def chunk_count(size):
+    return max(1, (size + CHUNK_SIZE - 1) // CHUNK_SIZE)
+
+
+def chunk_length(size, idx):
+    return min(CHUNK_SIZE, size - idx * CHUNK_SIZE)
+
+
 # ---------------------------------------------------------------- routes
 @app.get("/")
 def index():
-    return render_template("index.html")
+    if not owner_granted():
+        return ("<h1>Forbidden</h1>"
+                "<p>This console is private to the sender. "
+                "Open it on the sender machine or with the owner link.</p>", 403)
+    return render_template("index.html", share_base=public_base())
+
+
+@app.get("/api/config")
+def api_config():
+    """Public URLs the UI needs to build a share link. No secret here."""
+    return jsonify({"stable_url": read_url_file(STABLE_URL_PATH),
+                    "tunnel_url": read_url_file(TUNNEL_URL_PATH),
+                    "share_base": public_base()})
 
 
 @app.get("/s/<share_id>")
@@ -158,79 +271,161 @@ def verify_page(share_id):
     db = get_db()
     share = get_share(db, share_id)
     if share is None:
-        return render_template("verify.html", share_id=share_id, found=False), 404
+        return render_template("verify.html", share_id=share_id, found=False,
+                               share_base=public_base()), 404
     refresh_status(db, share)
-    return render_template("verify.html", share_id=share_id, found=True)
+    return render_template("verify.html", share_id=share_id, found=True,
+                           share_base=public_base())
 
 
-@app.post("/api/upload")
-def api_upload():
-    db = get_db()
-    f = request.files.get("file")
-    if f is None or not f.filename:
-        return jsonify({"error": "no file provided"}), 400
-
+@app.post("/api/upload/init")
+def api_upload_init():
+    """Open a PENDING share and preallocate its file. No bytes move yet."""
+    if not owner_granted():
+        return jsonify({"error": "forbidden"}), 403
+    data = request.get_json(force=True, silent=True) or {}
     try:
-        expiry_hours = int(request.form.get("expiry_hours", DEFAULT_EXPIRY_HOURS))
+        size = int(data.get("size", 0))
     except (TypeError, ValueError):
-        expiry_hours = DEFAULT_EXPIRY_HOURS
-    if expiry_hours not in EXPIRY_OPTIONS:
-        expiry_hours = DEFAULT_EXPIRY_HOURS
+        size = 0
+    if size <= 0:
+        return jsonify({"error": "size must be a positive number of bytes"}), 400
+    if size > MAX_FILE_BYTES:
+        return jsonify({"error": f"file exceeds {MAX_FILE_BYTES // 1024**3} GB limit"}), 413
 
-    try:
-        max_downloads = int(request.form.get("max_downloads", DEFAULT_MAX_DOWNLOADS))
-    except (TypeError, ValueError):
-        max_downloads = DEFAULT_MAX_DOWNLOADS
-    max_downloads = max(1, min(100, max_downloads))
-
-    clean = secure_filename(f.filename) or "file"
-    # cap extension length to avoid pathological stored names
+    clean = secure_filename(str(data.get("filename", ""))) or "file"
     _, ext = os.path.splitext(clean)
     ext = ext[:16]
 
+    db = get_db()
     now = int(time.time())
     share_id = new_share_id(db)
     stored_name = share_id + ext
     dest = os.path.join(UPLOAD_DIR, stored_name)
-
-    # Stream to disk with hard size cap (belt + suspenders w/ MAX_CONTENT_LENGTH)
-    size = 0
+    # Preallocate: every chunk has a home from the start, so a chunk write is a
+    # plain seek-and-write and a retry is byte-identical.
     with open(dest, "wb") as out:
-        while True:
-            chunk = f.stream.read(1024 * 64)
-            if not chunk:
-                break
-            size += len(chunk)
-            if size > MAX_FILE_BYTES:
-                out.close()
-                try:
-                    os.remove(dest)
-                except OSError:
-                    pass
-                return jsonify({"error": "file exceeds 50MB limit"}), 413
-            out.write(chunk)
-    if size == 0:
-        try:
-            os.remove(dest)
-        except OSError:
-            pass
-        return jsonify({"error": "empty file"}), 400
+        out.truncate(size)
 
-    code = str(secrets.randbelow(900000) + 100000)  # 100000-999999, shown once
-    salt = secrets.token_hex(8)  # hex16
     mime = mimetypes.guess_type(clean)[0] or "application/octet-stream"
-
     db.execute(
         """INSERT INTO shares (id, filename, stored_name, size_bytes, mime,
                                code_hash, salt, expires_at, max_downloads,
                                download_count, attempt_count, status, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'ACTIVE', ?)""",
+           VALUES (?, ?, ?, ?, ?, '', '', ?, ?, 0, 0, 'PENDING', ?)""",
         (share_id, clean, stored_name, size, mime,
-         hash_code(code, salt), salt,
-         now + expiry_hours * 3600, max_downloads, now),
+         now + UPLOAD_TTL_SECONDS, DEFAULT_MAX_DOWNLOADS, now),
     )
     db.commit()
-    return jsonify({"id": share_id, "code": code, "url": f"/s/{share_id}"})
+    return jsonify({"id": share_id, "chunk_size": CHUNK_SIZE,
+                    "chunks": chunk_count(size)})
+
+
+@app.put("/api/upload/chunk")
+def api_upload_chunk():
+    """Write one chunk at its offset. Safe to repeat."""
+    if not owner_granted():
+        return jsonify({"error": "forbidden"}), 403
+    upload_id = request.headers.get("X-Upload-Id", "")
+    try:
+        idx = int(request.headers.get("X-Chunk-Index", ""))
+    except (TypeError, ValueError):
+        return jsonify({"error": "X-Chunk-Index must be an integer"}), 400
+
+    db = get_db()
+    share = get_share(db, upload_id)
+    if share is None:
+        return jsonify({"error": "not found"}), 404
+    if refresh_status(db, share) != "PENDING":
+        return jsonify({"error": "upload is not open"}), 409
+    total = chunk_count(share["size_bytes"])
+    if not 0 <= idx < total:
+        return jsonify({"error": "chunk index out of range"}), 400
+
+    expected = chunk_length(share["size_bytes"], idx)
+    body = request.stream.read(expected + 1)
+    if len(body) != expected:
+        return jsonify({"error": f"chunk {idx} must be {expected} bytes"}), 400
+
+    path = os.path.join(UPLOAD_DIR, share["stored_name"])
+    try:
+        with open(path, "r+b") as out:
+            out.seek(idx * CHUNK_SIZE)
+            out.write(body)
+    except OSError:
+        return jsonify({"error": "could not write chunk"}), 500
+
+    db.execute("INSERT OR IGNORE INTO chunks (share_id, idx) VALUES (?, ?)",
+               (upload_id, idx))
+    db.commit()
+    received = db.execute("SELECT COUNT(*) FROM chunks WHERE share_id = ?",
+                          (upload_id,)).fetchone()[0]
+    return jsonify({"received": received, "chunks": total})
+
+
+@app.get("/api/upload/status")
+def api_upload_status():
+    """Which chunks the server already holds. The client resumes from here."""
+    if not owner_granted():
+        return jsonify({"error": "forbidden"}), 403
+    db = get_db()
+    share = get_share(db, request.args.get("id", ""))
+    if share is None:
+        return jsonify({"error": "not found"}), 404
+    status = refresh_status(db, share)
+    rows = db.execute("SELECT idx FROM chunks WHERE share_id = ? ORDER BY idx",
+                      (share["id"],)).fetchall()
+    return jsonify({"status": status, "received": [r["idx"] for r in rows],
+                    "chunks": chunk_count(share["size_bytes"]),
+                    "chunk_size": CHUNK_SIZE,
+                    "size_bytes": share["size_bytes"]})
+
+
+@app.post("/api/upload/complete")
+def api_upload_complete():
+    """Seal a fully received upload. Only here does the code get created."""
+    if not owner_granted():
+        return jsonify({"error": "forbidden"}), 403
+    data = request.get_json(force=True, silent=True) or {}
+    upload_id = data.get("id", "")
+    db = get_db()
+    share = get_share(db, upload_id)
+    if share is None:
+        return jsonify({"error": "not found"}), 404
+    if refresh_status(db, share) != "PENDING":
+        return jsonify({"error": "upload is not open"}), 409
+
+    total = chunk_count(share["size_bytes"])
+    received = db.execute("SELECT COUNT(*) FROM chunks WHERE share_id = ?",
+                          (upload_id,)).fetchone()[0]
+    if received != total:
+        return jsonify({"error": f"missing chunks: {received} of {total} received"}), 409
+    path = os.path.join(UPLOAD_DIR, share["stored_name"])
+    if os.path.getsize(path) != share["size_bytes"]:
+        return jsonify({"error": "stored size does not match the declared size"}), 500
+
+    try:
+        expiry_hours = int(data.get("expiry_hours", DEFAULT_EXPIRY_HOURS))
+    except (TypeError, ValueError):
+        expiry_hours = DEFAULT_EXPIRY_HOURS
+    if expiry_hours not in EXPIRY_OPTIONS:
+        expiry_hours = DEFAULT_EXPIRY_HOURS
+    try:
+        max_downloads = int(data.get("max_downloads", DEFAULT_MAX_DOWNLOADS))
+    except (TypeError, ValueError):
+        max_downloads = DEFAULT_MAX_DOWNLOADS
+    max_downloads = max(1, min(100, max_downloads))
+
+    code = str(secrets.randbelow(900000) + 100000)  # 100000-999999, shown once
+    salt = secrets.token_hex(8)
+    now = int(time.time())
+    db.execute(
+        """UPDATE shares SET code_hash = ?, salt = ?, status = 'ACTIVE',
+                             expires_at = ?, max_downloads = ? WHERE id = ?""",
+        (hash_code(code, salt), salt, now + expiry_hours * 3600, max_downloads, upload_id),
+    )
+    db.commit()
+    return jsonify({"id": upload_id, "code": code, "url": f"/s/{upload_id}"})
 
 
 @app.get("/api/info/<share_id>")
@@ -252,6 +447,8 @@ def api_info(share_id):
 
 @app.get("/api/shares")
 def api_shares():
+    if not owner_granted():
+        return jsonify({"error": "forbidden"}), 403
     db = get_db()
     rows = db.execute(
         "SELECT * FROM shares ORDER BY created_at DESC LIMIT 20"
@@ -362,6 +559,8 @@ def api_download_get():
 
 @app.post("/api/delete")
 def api_delete():
+    if not owner_granted():
+        return jsonify({"error": "forbidden"}), 403
     data = request.get_json(force=True, silent=True) or {}
     share_id = data.get("id", "")
     code = str(data.get("code", ""))
