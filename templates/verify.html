@@ -163,12 +163,12 @@ async function loadInfo() {
     return;
   }
   infoSize = j.size_bytes || j.size || 0;
-  const kb = (infoSize / 1024).toFixed(1);
+  const human = fmtBytes(infoSize);
   const exp = new Date(j.expires_at * 1000).toLocaleString();
-  el.textContent = `${j.filename} · ${kb} KB · ${j.downloads_left} downloads left · expires ${exp} · ${j.status}`;
+  el.textContent = `${j.filename} · ${human} · ${j.downloads_left} downloads left · expires ${exp} · ${j.status}`;
   document.getElementById('fname').textContent = j.filename;
   document.getElementById('ficon').textContent = fileKind(j.filename);
-  document.getElementById('fsize').textContent = kb + ' KB';
+  document.getElementById('fsize').textContent = human;
   document.getElementById('fleft').textContent = String(j.downloads_left);
   document.getElementById('fexp').textContent = exp;
   document.getElementById('fstatus').innerHTML = `<span class="pill ${j.status}">${j.status}</span>`;
@@ -178,7 +178,8 @@ async function loadInfo() {
 function fmtBytes(n) {
   if (n < 1024) return n + ' B';
   if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
-  return (n / 1024 / 1024).toFixed(2) + ' MB';
+  if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(2) + ' MB';
+  return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB';
 }
 
 function render(t, notice) {

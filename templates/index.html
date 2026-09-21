@@ -105,6 +105,15 @@ button {
 button:disabled {
   opacity: .6;
 }
+button.copybtn.primary {
+  width: 100%;
+  margin-top: 0;
+  padding: 12px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  background: var(--accent);
+  color: #fff;
+}
 button.copybtn {
   width: auto;
   margin-top: 8px;
@@ -296,6 +305,11 @@ a.openlink {
   white-space: nowrap;
   color: var(--accent);
 }
+hr.divider {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 16px 0;
+}
 .sharelink {
   word-break: break-all;
   color: var(--accent);
@@ -341,7 +355,10 @@ a.openlink {
 </section>
 
 <section class="card" id="result" aria-live="polite" hidden>
-  <h2 class="pane-title">Link and code</h2>
+  <h2 class="pane-title">Ready to send</h2>
+  <button type="button" class="copybtn primary" id="copy-msg-btn">Copy message</button>
+  <p class="hint" style="text-align:center;margin-top:8px">Paste it into your chat app. It holds the link and the code.</p>
+  <hr class="divider">
   <div class="linkrow">
     <a class="sharelink" id="rurl" href="#"></a>
     <button type="button" class="copybtn" id="copy-link-btn">Copy link</button>
@@ -351,7 +368,7 @@ a.openlink {
     <button type="button" class="copybtn" id="copy-code-btn">Copy code</button>
   </div>
   <p class="hint" id="copymsg" style="text-align:center" aria-live="polite"></p>
-  <p class="hint">Send the link one way and the code another way.</p>
+  <p class="hint">For a sensitive file, send the link and the code in two separate messages.</p>
 </section>
 
 <div class="card">
@@ -396,6 +413,15 @@ const Transfers = (() => {
 const SHARE_BASE = {{ share_base | tojson }} || location.origin;
 const shareLink = (id) => SHARE_BASE + '/s/' + id;
 
+// The last sealed share, kept so "Copy message" can rebuild the text.
+let lastShare = null;
+
+function shareMessage(s) {
+  const hours = s.hours === 1 ? '1 hour' : s.hours + ' hours';
+  return s.name + ' is ready to download:\n' + shareLink(s.id) +
+    '\nCode: ' + s.code + '\nThe link works for ' + hours + '.';
+}
+
 const MINE_KEY = 'tunnelshare_mine';
 function getMine() {
   try { return new Set(JSON.parse(localStorage.getItem(MINE_KEY) || '[]')); }
@@ -409,7 +435,8 @@ function rememberMine(id) {
 function fmtSize(n) {
   if (n < 1024) return n + ' B';
   if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
-  return (n / 1024 / 1024).toFixed(1) + ' MB';
+  if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
+  return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB';
 }
 function fmtExp(ts) { return new Date(ts * 1000).toLocaleString(); }
 
@@ -602,6 +629,8 @@ document.getElementById('up').addEventListener('submit', async (e) => {
     document.getElementById('rcode').textContent = j.code;
     document.getElementById('result').hidden = false;
     document.getElementById('copymsg').textContent = '';
+    lastShare = { id: j.id, code: j.code, name: file.name,
+                  hours: Number(document.getElementById('expiry_hours').value) };
     rememberMine(j.id);
     loadShares();
     e.target.reset();
@@ -627,6 +656,11 @@ async function copyText(text, note) {
   }
 }
 
+document.getElementById('copy-msg-btn').addEventListener('click', () => {
+  const note = document.getElementById('copymsg');
+  if (!lastShare) return;
+  copyText(shareMessage(lastShare), note);
+});
 document.getElementById('copy-code-btn').addEventListener('click', () => {
   const code = document.getElementById('rcode').textContent.trim();
   const note = document.getElementById('copymsg');
